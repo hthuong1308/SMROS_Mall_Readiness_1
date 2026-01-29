@@ -1,11 +1,19 @@
+// ============================================================
+// Compat guard: some older builds call requireGateOrRedirect()
+// Avoid crash by providing a safe no-op that never blocks results.
+// ============================================================
+// Khai báo hàm $ (viết tắt document.getElementById)
 const $ = (id) => document.getElementById(id);
+
+// Hàm giả lập check Gate (luôn trả về true để không bị lỗi redirect)
+function requireGateOrRedirect() { return true; }
+
+// Sự kiện khi tải trang
 document.addEventListener('DOMContentLoaded', () => {
-  if (window.GateGuard) {
-    window.GateGuard.requireSoftGatePassOrRedirect({
-      redirectOnMissing: true,
-    });
-  }
+  // Nếu có logic khởi tạo nào khác thì viết vào đây
+  console.log("Result page loaded.");
 });
+
 let toastTimer = null;
 
 /* ============================================================
@@ -31,7 +39,6 @@ function showToast(type, title, message, ms = 2600) {
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toast.style.display = "none"), ms);
 }
-
 /* ============================================================
    ✅ Query param helper
    - Lấy giá trị query string từ URL hiện tại
@@ -380,46 +387,6 @@ function calcGroupsAndKpisFromLocal(local) {
   return { kpis, groups };
 }
 
-/**
- * Ensure assessment_record has:
- * - kpis[] with numeric score/weight_final and normalized group keys
- * - groups{} computed (Operation/Brand/Category/Scale)
- * This fixes cases where scoring_logic.js saved groups: {} (expecting dashboard.js to compute),
- * but RESULTS.html renders directly from assessment_record_local.
- */
-function ensureGroupsFromRecord(record) {
-  if (!record || typeof record !== "object") return record;
-
-  const src = Array.isArray(record.kpis) ? record.kpis : [];
-  const kpis = src.map((k) => {
-    const id = k.rule_id || k.id || k.kpiId || "";
-    const score = Number(k.score ?? 0);
-    const w = Number(k.weight_final ?? k.weight ?? 0);
-    return {
-      ...k,
-      rule_id: id,
-      kpiId: id,
-      group: k.group || groupOf(id),
-      domain: k.domain || domainOf(id),
-      score: Number.isFinite(score) ? score : 0,
-      weight_final: Number.isFinite(w) ? w : 0,
-    };
-  });
-
-  const groups = {};
-  ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
-    const items = kpis.filter((x) => x.group === g);
-    const wsum = items.reduce((s, it) => s + (it.weight_final || 0), 0);
-    const contrib = items.reduce((s, it) => s + (it.score || 0) * (it.weight_final || 0), 0);
-    groups[g] = { score: wsum > 0 ? contrib / wsum : 0, contribution: contrib };
-  });
-
-  record.kpis = kpis;
-  record.groups = groups;
-  return record;
-}
-
-
 function safeParseJson(s) {
   try {
     return JSON.parse(s);
@@ -535,13 +502,6 @@ function adaptLocalAssessment(local) {
 ============================================================ */
 function render(assess) {
   $("loadingSection")?.remove();
-
-  // ✅ Fix: some records were saved with groups: {}. Compute groups from kpis for RESULT UI.
-  assess = ensureGroupsFromRecord(assess);
-  try {
-    localStorage.setItem("assessment_record_local", JSON.stringify(assess));
-    if (assess?.assessment_id) localStorage.setItem(`assessment_record_${assess.assessment_id}`, JSON.stringify(assess));
-  } catch (_) {}
 
   const assessmentId = assess.assessment_id || "—";
   const shopName = assess.shop?.shop_name || "—";
@@ -1042,67 +1002,29 @@ function render(assess) {
 ============================================================ */
 async function load() {
   const assessmentId = getQueryParam("assessment_id");
-  const mode = getQueryParam("mode");
 
-  const isLocalMode =
-    mode === "local" ||
-    String(assessmentId || "").startsWith("LOCAL_") ||
-    window.location.protocol === "file:";
-
-  // ✅ Static hosting guard (GitHub Pages / pure static): DO NOT call /api/*
-  const isStaticHost = window.location.protocol === "file:" || String(window.location.hostname || "").endsWith("github.io");
-
-  // Optional escape hatch: only call API if explicitly enabled
-  const useApi = getQueryParam("use_api") === "1";
-
-  const shouldUseApi = !!assessmentId && !isLocalMode && !isStaticHost && useApi;
-
-  // ✅ Local-first (default): ưu tiên localStorage/Firebase snapshot, không gọi /api trên GitHub Pages
-  if (!shouldUseApi) {
-    // 1) Prefer per-assessment record (stable when user opens bookmark by assessment_id)
-    let rec = null;
-    if (assessmentId) {
-      const recRaw = localStorage.getItem(`assessment_record_${assessmentId}`);
-      rec = recRaw ? safeParseJson(recRaw) : null;
-    }
-
-    // 2) Fallback: last local record (created at scoring time)
-    if (!rec) {
-      const recRaw2 = localStorage.getItem("assessment_record_local");
-      rec = recRaw2 ? safeParseJson(recRaw2) : null;
-    }
-
-    if (rec && !requireHardGateEvidenceOrRedirectLocal(rec)) return;
-
-    if (rec && rec.assessment_id) {
-      render(rec);
-      return;
-    }
-
-    // 3) Fallback: adapt from assessment_result payload
-    const raw =
-      (assessmentId ? localStorage.getItem(`assessment_result_${assessmentId}`) : null) ||
-      localStorage.getItem("assessment_result");
+  // ✅ Offline/local mode: không có assessment_id
+  if (!assessmentId) {
+    const raw = localStorage.getItem("assessment_result");
     const local = raw ? safeParseJson(raw) : null;
 
     if (local && !requireHardGateEvidenceOrRedirectLocal(local)) return;
 
     if (!local) {
-      renderEmpty("Không có dữ liệu localStorage cho assessment này. Hãy chạy lại đánh giá từ KO → KPI để tạo kết quả.");
+      renderEmpty("Thiếu assessment_id và không có assessment_result trong localStorage.");
       return;
     }
 
     const assess = adaptLocalAssessment(local);
 
-    // cache for Dashboard open
+    // ✅ LƯU record để DASHBOARD đọc được khi offline/file://
     localStorage.setItem("assessment_record_local", JSON.stringify(assess));
-    if (assessmentId) localStorage.setItem(`assessment_record_${assessmentId}`, JSON.stringify(assess));
 
     render(assess);
     return;
   }
 
-  // ✅ API mode (opt-in): có assessment_id -> gọi API
+  // ✅ Online mode: có assessment_id -> gọi API
   try {
     const url = `/api/assessments/${encodeURIComponent(assessmentId)}`;
     const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
@@ -1118,48 +1040,17 @@ async function load() {
     }
 
     render(data);
-    localStorage.setItem(
-      "assessment_record_local",
-      JSON.stringify({
-        ...data,
-        evaluated_at: data.evaluated_at || data.evaluatedAt || new Date().toISOString(),
-      })
-    );
-    localStorage.setItem(`assessment_record_${data.assessment_id}`, JSON.stringify(data));
+    localStorage.setItem("assessment_record_local", JSON.stringify({
+      ...data,
+      evaluated_at: data.evaluated_at || data.evaluatedAt || new Date().toISOString()
+    }));
   } catch (err) {
     console.error(err);
     renderEmpty(err?.message || "Không thể gọi API.");
   }
 }
 
-
 /* ============================================================
    ✅ INIT (chỉ 1 lần)
 ============================================================ */
-document.addEventListener("DOMContentLoaded", () => {
-  if (!requireHardGateOrRedirect()) return;
-  if (!requireSoftGatePassOrRedirect()) return;
-
-  // Sync UI text from rules
-  syncKpiCardsFromRules();
-
-  // ✅ BLANK MODE: không rehydrate dữ liệu cũ
-  try { localStorage.removeItem(getDraftKey()); } catch (_) {}
-
-  // ✅ Clear all inputs/selects to guarantee blank UI (even if browser auto-fill)
-  document.querySelectorAll(".kpi-input").forEach((el) => (el.value = ""));
-  document.querySelectorAll(".kpi-select").forEach((el) => (el.value = ""));
-  // Clear any status badges if your UI has them
-  document.querySelectorAll(".status, .kpi-status, .badge-status").forEach((el) => (el.textContent = ""));
-
-  // Checklist
-  renderChecklist();
-  KPI_ORDER.forEach(updateChecklistItem);
-  updateProgress(); // (review-section vẫn ẩn vì chưa đủ 19)
-
-  // Bind events
-  bindEvents();
-});
-
-
-
+document.addEventListener("DOMContentLoaded", load);
