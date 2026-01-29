@@ -1137,35 +1137,29 @@ async function load() {
    ✅ INIT (chỉ 1 lần)
 ============================================================ */
 document.addEventListener("DOMContentLoaded", () => {
-  // 1) Không auto-load -> dọn skeleton
-  $("loadingSection")?.remove();
+  if (!requireHardGateOrRedirect()) return;
+  if (!requireSoftGatePassOrRedirect()) return;
 
-  // 2) Render màn hình "blank/ready"
-  const main = $("mainRoot");
-  if (!main) return;
+  // Sync UI text from rules
+  syncKpiCardsFromRules();
 
-  main.innerHTML = `
-    <section class="section">
-      <div class="section-head">
-        <div class="left">🧾 RESULT</div>
-        <div class="right"><span class="pill">Manual load</span></div>
-      </div>
-      <div class="section-body">
-        <div class="empty">
-          <div class="icon">🧠</div>
-          <h3>Trang kết quả đang trống</h3>
-          <p>Nhấn <b>Xem kết quả</b> để tải dữ liệu và hiển thị báo cáo.</p>
-          <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
-            <button class="btn primary" id="btnLoadResult" type="button">📌 Xem kết quả</button>
-            <a class="btn light" href="./KPI_SCORING.html">🧮 Quay về trang KPI</a>
-          </div>
-        </div>
-      </div>
-    </section>
-  `;
+  // ✅ BLANK MODE: không rehydrate dữ liệu cũ
+  try { localStorage.removeItem(getDraftKey()); } catch (_) {}
 
-  // 3) Chỉ load khi user bấm
-  document.getElementById("btnLoadResult")?.addEventListener("click", load);
+  // ✅ Clear all inputs/selects to guarantee blank UI (even if browser auto-fill)
+  document.querySelectorAll(".kpi-input").forEach((el) => (el.value = ""));
+  document.querySelectorAll(".kpi-select").forEach((el) => (el.value = ""));
+  // Clear any status badges if your UI has them
+  document.querySelectorAll(".status, .kpi-status, .badge-status").forEach((el) => (el.textContent = ""));
+
+  // Checklist
+  renderChecklist();
+  KPI_ORDER.forEach(updateChecklistItem);
+  updateProgress(); // (review-section vẫn ẩn vì chưa đủ 19)
+
+  // Bind events
+  bindEvents();
 });
+
 
 
