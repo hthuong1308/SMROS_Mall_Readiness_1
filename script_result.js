@@ -995,60 +995,126 @@ function render(assess) {
   if (assess.assessment_id) syncDashboardLinks(assess.assessment_id);
 }
 /* ============================================================
-   ✅ LOAD DATA
-   - Nếu có assessment_id -> gọi API
-   - Nếu không có assessment_id -> đọc localStorage (assessment_result)
-   - Đồng thời lưu assessment_record_local để DASHBOARD đọc được khi mode=local
+   LOAD DATA (Local-first + Static-host safe)
+   - GitHub Pages / file:// : KHÔNG BAO GIỜ gọi /api/*
+   - Ưu tiên đọc:
+     (1) assessment_record_{assessmentId}
+     (2) assessment_record_local
+     (3) assessment_result_{assessmentId} hoặc assessment_result
 ============================================================ */
 async function load() {
   const assessmentId = getQueryParam("assessment_id");
+  const mode = getQueryParam("mode");
 
-  // ✅ Offline/local mode: không có assessment_id
-  if (!assessmentId) {
-    const raw = localStorage.getItem("assessment_result");
+  const host = String(window.location.hostname || "").toLowerCase();
+  const isStaticHost =
+    window.location.protocol === "file:" ||
+    host.endsWith("github.io") ||
+    host.includes("pages.dev") ||
+    host.includes("vercel.app") ||
+    host.includes("netlify.app");
+
+  const isLocalMode =
+    mode === "local" ||
+    String(assessmentId || "").startsWith("LOCAL_") ||
+    window.location.protocol === "file:";
+
+  // Chỉ gọi API khi user cố tình bật ?use_api=1 và KHÔNG phải static host
+  const useApi = getQueryParam("use_api") === "1";
+  const shouldUseApi = !!assessmentId && !isLocalMode && !isStaticHost && useApi;
+
+  // ---------- Helper: render từ localStorage ----------
+  const renderFromLocal = () => {
+    // 1) Prefer per-assessment record (ổn định nhất)
+    let rec = null;
+    if (assessmentId) {
+      const recRaw = localStorage.getItem(`assessment_record_${assessmentId}`);
+      rec = recRaw ? safeParseJson(recRaw) : null;
+    }
+
+    // 2) Fallback: record local (lần gần nhất)
+    if (!rec) {
+      const recRaw2 = localStorage.getItem("assessment_record_local");
+      rec = recRaw2 ? safeParseJson(recRaw2) : null;
+    }
+
+    // Gate fail-closed (local mode): phải có hard evidence
+    if (rec && !requireHardGateEvidenceOrRedirectLocal(rec)) return;
+
+    if (rec && rec.assessment_id) {
+      render(rec);
+      return;
+    }
+
+    // 3) Fallback: adapt từ assessment_result (schema cũ)
+    const raw =
+      (assessmentId ? localStorage.getItem(`assessment_result_${assessmentId}`) : null) ||
+      localStorage.getItem("assessment_result");
     const local = raw ? safeParseJson(raw) : null;
 
     if (local && !requireHardGateEvidenceOrRedirectLocal(local)) return;
 
     if (!local) {
-      renderEmpty("Thiếu assessment_id và không có assessment_result trong localStorage.");
+      renderEmpty(
+        isStaticHost
+          ? "GitHub Pages không hỗ trợ /api. Không tìm thấy dữ liệu localStorage cho assessment này. Hãy chạy lại KO → KPI để tạo kết quả."
+          : "Không có dữ liệu localStorage cho assessment này. Hãy chạy lại KO → KPI để tạo kết quả."
+      );
       return;
     }
 
     const assess = adaptLocalAssessment(local);
 
-    // ✅ LƯU record để DASHBOARD đọc được khi offline/file://
-    localStorage.setItem("assessment_record_local", JSON.stringify(assess));
+    // cache để DASHBOARD/RESULTS đọc lại được
+    try {
+      localStorage.setItem("assessment_record_local", JSON.stringify(assess));
+      if (assessmentId) localStorage.setItem(`assessment_record_${assessmentId}`, JSON.stringify(assess));
+    } catch (_) { }
 
     render(assess);
+  };
+
+  // ---------- Local-first mặc định ----------
+  if (!shouldUseApi) {
+    renderFromLocal();
     return;
   }
 
-  // ✅ Online mode: có assessment_id -> gọi API
+  // ---------- API mode (opt-in) ----------
   try {
     const url = `/api/assessments/${encodeURIComponent(assessmentId)}`;
     const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
+
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`API ${res.status}: ${text || "Request failed"}`);
+      // KHÔNG nhét nguyên HTML lỗi vào UI (tránh CSP warning + UI bể)
+      throw new Error(`API ${res.status}: không truy cập được endpoint /api trên host hiện tại.`);
     }
 
-    const data = await res.json();
+    const data = await res.json().catch(() => null);
     if (!data || !data.assessment_id) {
-      renderEmpty("API trả về dữ liệu không hợp lệ.");
-      return;
+      throw new Error("API trả về dữ liệu không hợp lệ.");
     }
 
     render(data);
-    localStorage.setItem("assessment_record_local", JSON.stringify({
-      ...data,
-      evaluated_at: data.evaluated_at || data.evaluatedAt || new Date().toISOString()
-    }));
+
+    // cache lại để mở Dashboard local được
+    try {
+      localStorage.setItem(
+        "assessment_record_local",
+        JSON.stringify({
+          ...data,
+          evaluated_at: data.evaluated_at || data.evaluatedAt || new Date().toISOString(),
+        })
+      );
+      localStorage.setItem(`assessment_record_${data.assessment_id}`, JSON.stringify(data));
+    } catch (_) { }
   } catch (err) {
     console.error(err);
-    renderEmpty(err?.message || "Không thể gọi API.");
+    // Fallback về local thay vì trắng trang
+    renderFromLocal();
   }
 }
+
 
 /* ============================================================
    ✅ INIT (chỉ 1 lần)
