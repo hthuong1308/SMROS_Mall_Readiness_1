@@ -99,32 +99,25 @@ MỤC TIÊU TỔNG THỂ:
         ===================================================== */
 
         kpis: [
-            // Operation / Service / Compliance
-            { id: "OP-01", group: "Vận hành", name: "Tỷ lệ giao hàng trễ (LSR)", helpText: "" },
-            { id: "OP-02", group: "Vận hành", name: "Tỷ lệ đơn hàng không thành công (NFR)", helpText: "" },
-            { id: "OP-03", group: "Vận hành", name: "Tỷ lệ đánh giá tiêu cực (NRR)", helpText: "" },
-            { id: "OP-04", group: "Vận hành", name: "Tỷ lệ giao hàng nhanh", helpText: "" },
-            { id: "CS-01", group: "Vận hành", name: "Tỷ lệ phản hồi Chat", helpText: "" },
-            { id: "CS-02", group: "Vận hành", name: "Thời gian phản hồi Chat (h)", helpText: "" },
-            { id: "PEN-01", group: "Vận hành", name: "Điểm phạt Sao Quả Tạ", helpText: "" },
-            { id: "CO-01", group: "Vận hành", name: "Tỷ lệ hàng đặt trước (%)", helpText: "" },
-            { id: "CO-02", group: "Vận hành", name: "Không vi phạm cộng đồng", helpText: "" },
-
-            // Brand
-            { id: "BR-01", group: "Thương hiệu", name: "Website ổn định (domain check)", helpText: "" },
-            { id: "BR-02", group: "Thương hiệu", name: "Hiện diện MXH (followers + post link)", helpText: "" },
-            { id: "BR-03", group: "Thương hiệu", name: "Độ phủ Offline (địa chỉ cửa hàng)", helpText: "" },
-
-            // Category
-            { id: "CAT-01", group: "Danh mục", name: "Số lượng sản phẩm hoạt động (SKU)", helpText: "" },
-            { id: "CAT-02", group: "Danh mục", name: "Ảnh đạt chuẩn (white bg + lifestyle + không vi phạm)", helpText: "" },
-            { id: "CAT-03", group: "Danh mục", name: "Sản phẩm bị khóa/xóa", helpText: "" },
-            { id: "CAT-04", group: "Danh mục", name: "Các vi phạm khác", helpText: "" },
-
-            // Scale
-            { id: "SC-01", group: "Quy mô", name: "Doanh số 4w (Triệu VNĐ)", helpText: "" },
-            { id: "SC-02", group: "Quy mô", name: "Số đơn hàng 4w", helpText: "" },
-            { id: "SC-03", group: "Quy mô", name: "Tăng trưởng doanh số (%)", helpText: "" },
+            { id: "OP-01", group: "Vận hành", name: "Tỷ lệ giao hàng trễ (LSR)", method: "RANGE", weight: 0.08, direction: "LE", t1: 8, t2: 12, helpText: "" },
+            { id: "OP-02", group: "Vận hành", name: "Tỷ lệ đơn hàng không thành công (NFR)", method: "RANGE", weight: 0.08, direction: "LE", t1: 8, t2: 12, helpText: "" },
+            { id: "OP-03", group: "Vận hành", name: "Tỷ lệ đánh giá tiêu cực (NRR)", method: "RANGE", weight: 0.05, direction: "LE", t1: 2, t2: 5, helpText: "" },
+            { id: "OP-04", group: "Vận hành", name: "Tỷ lệ giao hàng nhanh", method: "RANGE", weight: 0.05, direction: "GE", t1: 95, t2: 80, helpText: "" },
+            { id: "CS-01", group: "Vận hành", name: "Tỷ lệ phản hồi Chat", method: "RANGE", weight: 0.05, direction: "GE", t1: 80, t2: 60, helpText: "" },
+            { id: "CS-02", group: "Vận hành", name: "Thời gian phản hồi Chat (h)", method: "RANGE", weight: 0.05, direction: "LE", t1: 4, t2: 8, helpText: "" },
+            { id: "PEN-01", group: "Vận hành", name: "Điểm phạt Sao Quả Tạ", method: "RANGE", weight: 0.04, direction: "LE", t1: 0, t2: 2, helpText: "" },
+            { id: "BR-01", group: "Thương hiệu", name: "Website ổn định (domain check)", method: "CUSTOM", weight: 0.08, direction: "URL_OK", helpText: "" },
+            { id: "BR-02", group: "Thương hiệu", name: "Hiện diện MXH (followers + post link)", method: "CUSTOM", weight: 0.08, direction: "SOCIAL_2COND", t1: 5000, helpText: "" },
+            { id: "BR-03", group: "Thương hiệu", name: "Độ phủ Offline (địa chỉ cửa hàng)", method: "CUSTOM", weight: 0.04, direction: "NONEMPTY_TEXT", helpText: "" },
+            { id: "CAT-01", group: "Danh mục", name: "Số lượng sản phẩm hoạt động (SKU)", method: "RANGE", weight: 0.0375, direction: "GE", t1: 50, t2: 5, helpText: "" },
+            { id: "CAT-02", group: "Danh mục", name: "Ảnh đạt chuẩn (white bg + lifestyle + không vi phạm)", method: "CUSTOM", weight: 0.0375, direction: "IMG_2CHECK", helpText: "" },
+            { id: "CAT-03", group: "Danh mục", name: "Sản phẩm bị khóa/xóa", method: "BINARY", weight: 0.0525, direction: "BOOL", helpText: "" },
+            { id: "CAT-04", group: "Danh mục", name: "Các vi phạm khác", method: "BINARY", weight: 0.0225, direction: "BOOL", helpText: "" },
+            { id: "SC-01", group: "Quy mô", name: "Doanh số 4w (Triệu VNĐ)", method: "RANGE", weight: 0.075, direction: "GE", t1: 50, t2: 30, helpText: "" },
+            { id: "SC-02", group: "Quy mô", name: "Số đơn hàng 4w", method: "RANGE", weight: 0.045, direction: "GE", t1: 250, t2: 150, helpText: "" },
+            { id: "SC-03", group: "Quy mô", name: "Tăng trưởng doanh số (%)", method: "RANGE", weight: 0.03, direction: "GE", t1: 5, t2: 0, helpText: "" },
+            { id: "CO-01", group: "Vận hành", name: "Tỷ lệ hàng đặt trước (%)", method: "RANGE", weight: 0.05, direction: "LE", t1: 5, t2: 10, helpText: "" },
+            { id: "CO-02", group: "Vận hành", name: "Không vi phạm cộng đồng", method: "BINARY", weight: 0.05, direction: "BOOL", helpText: "" },
         ],
 
         /**
