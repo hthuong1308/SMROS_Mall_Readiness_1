@@ -1,54 +1,39 @@
 /**
  * ============================================================
- * SOFT_KO_SCRIPT.JS (HARDENED + MATCH SOFT_KO.html + MRSM_CONFIG)
+ * SOFT_KO_SCRIPT.JS (FULL FIXED - MATCH SOFT_KO.html)
  * ============================================================
- * - SSOT source: window.MRSM_CONFIG
- *   + SOFT_KO_IDS
- *   + getKpiMeta(id) for labels
- *   + GATE_STATUS enum
- *   + SOFT_GATE_KEY / HARD_GATE_KEY (if needed)
- * - Thresholds/type/direction for Soft KO:
- *   -> thesis defaults (because mrsm_config.js currently has no GateRegistry thresholds)
- *
- * UI contract (SOFT_KO.html):
- *   input ids:   op04, pen01, co01, sc02
- *   badge ids:   badge-op04, badge-pen01, ...
- *   hint ids:    hint-op04, hint-pen01, ...
- *   checklist:   check-op04, check-pen01, ...
- *   progress:    progress-text
- *   next button: nextBtn
+ * Fixes:
+ * 1) Lock dynamic + reconcile lock with gate_status (no "stuck disabled")
+ * 2) UI selectors match SOFT_KO.html ids: op04/pen01/co01/sc02, badge-*, hint-*, check-*, progress-text, nextBtn
+ * 3) Guard Hard KO (fail-closed) + soft gate init/migrate
+ * 4) Validate: clamp by type; do NOT write gate when empty
+ * 5) Next button enabled when all 4 filled; clicking -> PASS shows success modal + lock + redirect; otherwise rejection modal
  * ============================================================
  */
 
-// ---------- Constants ----------
-const LOCK_KEY = "soft_ko_gate_locked";
-
-// Prefer SSOT key from MRSM_CONFIG; fallback to legacy literal.
-function softGateKey() {
-  return window.MRSM_CONFIG?.SOFT_GATE_KEY || "soft_ko_gate";
-}
-
-// ---------- Thesis defaults (because mrsm_config.js has no thresholds SSOT yet) ----------
+// ===== Config (thresholds) =====
 const SOFT_KO_DEFAULTS = {
-  "OP-04": { type: "percentage", direction: "min", threshold: 85, unit: "%", remediation_days: 7 },
-  "PEN-01": { type: "number", direction: "max", threshold: 2, unit: " Sao", remediation_days: 7 },
-  "CO-01": { type: "percentage", direction: "max", threshold: 10, unit: "%", remediation_days: 7 },
-  "SC-02": { type: "number", direction: "min", threshold: 150, unit: " đơn", remediation_days: 7 },
+  "OP-04": { type: "percentage", direction: "min", threshold: 85, unit: "%" },
+  "PEN-01": { type: "number", direction: "max", threshold: 2, unit: " Sao" },
+  "CO-01": { type: "percentage", direction: "max", threshold: 10, unit: "%" },
+  "SC-02": { type: "number", direction: "min", threshold: 150, unit: " đơn" },
 };
 
-// ---------- Helpers ----------
+// Map localKey -> ruleId
+const RULE_MAP = { op04: "OP-04", pen01: "PEN-01", co01: "CO-01", sc02: "SC-02" };
+
+// ===== Storage Keys =====
+const SOFT_GATE_KEY = "soft_ko_gate";
+const SOFT_GATE_LOCK_KEY = "soft_ko_gate_locked"; // lock only when PASS
+const HARD_KO_KEY = "validatedHardKO";
+
+// ===== Helpers =====
+function safeParse(raw) {
+  try { return JSON.parse(raw); } catch { return null; }
+}
 function clamp(v, min, max) {
   return Math.min(Math.max(v, min), max);
 }
-
-function safeParse(raw) {
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
 function formatDate(date) {
   if (!date) return "—";
   const d = new Date(date);
@@ -56,20 +41,14 @@ function formatDate(date) {
   return d.toLocaleDateString("vi-VN", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
-function toLocalKey(ruleId) {
-  // OP-04 -> op04 ; PEN-01 -> pen01
-  return String(ruleId || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-}
-
 function getGateStatusEnum() {
+  // if MRSM_CONFIG exists, prefer it
   return (
     window.MRSM_CONFIG?.GATE_STATUS || {
       PASS: "PASS",
-      HARD_FAIL: "G0",
       SOFT_PENDING: "G1",
       SOFT_OVERDUE: "G2",
+      HARD_FAIL: "G0",
       UNKNOWN: "UNKNOWN",
     }
   );
@@ -87,51 +66,45 @@ function getLabel(ruleId) {
 }
 
 function getRuleSpec(ruleId) {
-  // if later you add SSOT thresholds somewhere, plug it here
+  // if later you add SSOT rules in MRSM_CONFIG, plug here
   return SOFT_KO_DEFAULTS[ruleId] || null;
 }
 
-// ---------- Guards ----------
+// ===== Hard KO guard (fail-closed) =====
 function requireHardGateOrRedirect() {
-  // Prefer GateGuard if available
   if (window.GateGuard && typeof window.GateGuard.requireHardGateOrRedirect === "function") {
     return window.GateGuard.requireHardGateOrRedirect({ redirectOnMissing: true });
   }
 
-  // Fallback: MRSM_CONFIG legacy helper
-  if (window.MRSM_CONFIG?.requireHardGateOrRedirect) {
-    return window.MRSM_CONFIG.requireHardGateOrRedirect();
-  }
-
-  // Ultimate fallback: sessionStorage evidence
-  const hardRaw = sessionStorage.getItem(window.MRSM_CONFIG?.HARD_GATE_KEY || "validatedHardKO");
-  if (!hardRaw) {
+  const raw = sessionStorage.getItem(HARD_KO_KEY);
+  if (!raw) {
     window.location.href = "KO_GATE.html";
     return false;
   }
   return true;
 }
 
-// ---------- Inputs (built after DOM exists) ----------
+// ===== Build inputs config from rules + HTML existing ids =====
 let inputs = {};
-
-/**
- * Build inputs from SSOT IDs + thesis defaults, but ONLY if HTML input exists.
- */
 function buildInputs() {
-  const ids = getSoftKoIds();
   const out = {};
+  const ids = getSoftKoIds();
 
   for (const ruleId of ids) {
     const spec = getRuleSpec(ruleId);
     if (!spec) continue;
 
-    const localKey = toLocalKey(ruleId);
+    // convert ruleId -> localKey using RULE_MAP reverse
+    const localKey = Object.keys(RULE_MAP).find((k) => RULE_MAP[k] === ruleId);
+    if (!localKey) continue;
+
+    // only include if HTML has input id
     const inputEl = document.getElementById(localKey);
-    if (!inputEl) continue; // fail-safe: do not include non-existing UI controls
+    if (!inputEl) continue;
 
     const sign = spec.direction === "min" ? "≥" : "≤";
     const unit = spec.unit || "";
+
     out[localKey] = {
       id: localKey,
       ruleId,
@@ -140,34 +113,27 @@ function buildInputs() {
       direction: spec.direction,
       threshold: spec.threshold,
       unit,
-      remediation_days: spec.remediation_days ?? 7,
       passText: `Đạt chuẩn (${sign} ${spec.threshold}${unit})`,
       failText: `Cần cải thiện (${sign} ${spec.threshold}${unit})`,
     };
   }
-
   return out;
 }
 
-// ---------- Gate init + migration ----------
+// ===== Gate init/migrate =====
 function migrateSoftGate(gate) {
   try {
     if (!gate || typeof gate !== "object") return gate;
-
     if (!gate.soft || typeof gate.soft !== "object") gate.soft = {};
     if (!gate.soft.items || typeof gate.soft.items !== "object") gate.soft.items = {};
 
-    // migrate legacy deadline
+    // legacy deadline support
     if (!gate.soft.deadline_at && gate.deadline_at) gate.soft.deadline_at = gate.deadline_at;
 
     const allowed = new Set(getSoftKoIds());
-
-    // remove unknown items
     for (const id of Object.keys(gate.soft.items)) {
       if (!allowed.has(id)) delete gate.soft.items[id];
     }
-
-    // ensure all exist
     for (const id of allowed) {
       if (!gate.soft.items[id]) gate.soft.items[id] = { passed: false, note: "", fixed_at: null, regressed_at: null };
       gate.soft.items[id].note ??= "";
@@ -176,7 +142,6 @@ function migrateSoftGate(gate) {
       gate.soft.items[id].passed = !!gate.soft.items[id].passed;
     }
 
-    // backward compat
     gate.deadline_at = gate.soft.deadline_at;
   } catch (e) {
     console.warn("[SoftKO] migrateSoftGate error:", e);
@@ -187,50 +152,106 @@ function migrateSoftGate(gate) {
 function initSoftGateIfMissing() {
   if (!requireHardGateOrRedirect()) return null;
 
-  const key = softGateKey();
-  const raw = localStorage.getItem(key);
-  if (raw) {
-    const parsed = safeParse(raw);
+  const existing = localStorage.getItem(SOFT_GATE_KEY);
+  if (existing) {
+    const parsed = safeParse(existing);
     if (parsed) {
       const migrated = migrateSoftGate(parsed);
-      localStorage.setItem(key, JSON.stringify(migrated));
+      localStorage.setItem(SOFT_GATE_KEY, JSON.stringify(migrated));
       return migrated;
     }
   }
 
-  const G = getGateStatusEnum();
-  const now = new Date();
+  // Use verifiedAt from Hard KO if available
+  const hardRaw = sessionStorage.getItem(HARD_KO_KEY);
+  const hard = hardRaw ? safeParse(hardRaw) : null;
 
-  // remediation days: take OP-04 default (or 7)
-  const remDays = getRuleSpec("OP-04")?.remediation_days ?? 7;
-  const deadline = new Date(now);
-  deadline.setDate(now.getDate() + remDays);
+  const verifiedAtIso = hard?.verifiedAt || new Date().toISOString();
+  const verifiedAt = new Date(verifiedAtIso);
+  const deadlineAt = new Date(verifiedAt.getTime() + 7 * 24 * 60 * 60 * 1000);
 
   const items = {};
-  for (const id of getSoftKoIds()) {
-    items[id] = { passed: false, note: "", fixed_at: null, regressed_at: null };
+  for (const ruleId of getSoftKoIds()) {
+    items[ruleId] = { passed: false, note: "", fixed_at: null, regressed_at: null };
   }
 
+  const G = getGateStatusEnum();
   const gate = {
-    verified_at: now.toISOString(),
-    gate_status: G.SOFT_PENDING, // "G1"
+    verified_at: verifiedAt.toISOString(),
+    gate_status: G.SOFT_PENDING, // G1
     soft: {
-      deadline_at: deadline.toISOString(),
+      deadline_at: deadlineAt.toISOString(),
       items,
     },
   };
 
-  gate.deadline_at = gate.soft.deadline_at; // backward compat
+  gate.deadline_at = gate.soft.deadline_at; // legacy compat
 
-  localStorage.setItem(key, JSON.stringify(gate));
+  localStorage.setItem(SOFT_GATE_KEY, JSON.stringify(gate));
   return gate;
 }
 
 function saveGate(gate) {
-  localStorage.setItem(softGateKey(), JSON.stringify(gate));
+  localStorage.setItem(SOFT_GATE_KEY, JSON.stringify(gate));
 }
 
-// ---------- UI updates (MATCH SOFT_KO.html) ----------
+function evaluateSoftGateStatus(gate) {
+  const G = getGateStatusEnum();
+  const items = gate?.soft?.items || {};
+  const allPassed = Object.values(items).every((x) => x?.passed === true);
+  if (allPassed) return G.PASS;
+
+  const deadlineIso = gate?.soft?.deadline_at || gate?.deadline_at;
+  if (!deadlineIso) return G.SOFT_PENDING;
+
+  const now = new Date();
+  const deadline = new Date(deadlineIso);
+  if (Number.isNaN(deadline.getTime())) return G.SOFT_PENDING;
+
+  return now <= deadline ? G.SOFT_PENDING : G.SOFT_OVERDUE;
+}
+
+// ===== Lock logic (THE FIX) =====
+function reconcileLockWithGate() {
+  const gate = initSoftGateIfMissing();
+  const G = getGateStatusEnum();
+
+  const lockedKey = localStorage.getItem(SOFT_GATE_LOCK_KEY) === "1";
+  const gatePass = gate?.gate_status === G.PASS;
+
+  // If lockKey exists but gate NOT PASS -> remove to allow editing
+  if (lockedKey && !gatePass) {
+    localStorage.removeItem(SOFT_GATE_LOCK_KEY);
+  }
+
+  // If PASS -> ensure lock key
+  if (gatePass) {
+    localStorage.setItem(SOFT_GATE_LOCK_KEY, "1");
+  }
+
+  return localStorage.getItem(SOFT_GATE_LOCK_KEY) === "1";
+}
+
+function isLockedNow() {
+  reconcileLockWithGate();
+  return localStorage.getItem(SOFT_GATE_LOCK_KEY) === "1";
+}
+
+// ===== UI helpers =====
+function disableAllInputs() {
+  Object.keys(inputs).forEach((k) => {
+    const el = document.getElementById(inputs[k].id);
+    if (el) el.disabled = true;
+  });
+}
+function enableAllInputs() {
+  if (isLockedNow()) return;
+  Object.keys(inputs).forEach((k) => {
+    const el = document.getElementById(inputs[k].id);
+    if (el) el.disabled = false;
+  });
+}
+
 function updateInputUI(localKey, passed, message) {
   const cfg = inputs[localKey];
   if (!cfg) return;
@@ -256,143 +277,158 @@ function updateInputUI(localKey, passed, message) {
   }
 }
 
-function updateChecklist(localKey, filled) {
+function updateChecklist(localKey, filledOrPassed) {
   const row = document.getElementById(`check-${localKey}`);
   if (!row) return;
-
-  row.classList.toggle("completed", !!filled);
+  row.classList.toggle("completed", !!filledOrPassed);
   const icon = row.querySelector(".check-icon");
-  if (icon) icon.textContent = filled ? "✓" : "○";
+  if (icon) icon.textContent = filledOrPassed ? "✓" : "○";
 }
 
-function disableAllInputs() {
-  Object.keys(inputs).forEach((k) => {
-    const el = document.getElementById(inputs[k].id);
-    if (el) el.disabled = true;
-  });
-}
-
-function enableAllInputs() {
-  Object.keys(inputs).forEach((k) => {
-    const el = document.getElementById(inputs[k].id);
-    if (el) el.disabled = false;
-  });
-}
-
-function updateProgress() {
-  const keys = Object.keys(inputs);
-  let count = 0;
-
-  keys.forEach((k) => {
-    const el = document.getElementById(inputs[k].id);
-    const filled = !!el && String(el.value || "").trim() !== "";
-    if (filled) count++;
-    updateChecklist(k, filled);
-  });
-
-  const progressText = document.getElementById("progress-text");
-  if (progressText) progressText.textContent = `Đã nhập: ${count}/${keys.length} chỉ số`;
-
-  const nextBtn = document.getElementById("nextBtn");
-  if (nextBtn) {
-    const ready = keys.length > 0 && count === keys.length;
-    nextBtn.disabled = !ready;
-    nextBtn.classList.toggle("disabled", !ready);
-    nextBtn.textContent = "Xem kết quả";
+function ensureNextBtnHasText(btn, text) {
+  if (!btn) return;
+  let span = btn.querySelector("span");
+  if (!span) {
+    span = document.createElement("span");
+    btn.appendChild(span);
   }
+  span.textContent = text;
 }
 
-// ---------- Validation + gate update ----------
+// ===== Validation =====
+function sanitizeByType(cfg, rawString) {
+  if (rawString === "" || rawString === null || rawString === undefined) {
+    return { hasValue: false, value: NaN };
+  }
+  let v = Number(rawString);
+  if (Number.isNaN(v)) return { hasValue: false, value: NaN };
+
+  if (cfg.type === "percentage") v = clamp(v, 0, 100);
+  if (cfg.type === "number" && v < 0) v = 0;
+
+  return { hasValue: true, value: v };
+}
+
 function computePassed(cfg, value) {
   if (cfg.direction === "min") return value >= cfg.threshold;
   if (cfg.direction === "max") return value <= cfg.threshold;
-  return false; // fail-closed
+  return false;
 }
 
 function validateInput(localKey) {
   const cfg = inputs[localKey];
   if (!cfg) return false;
 
-  const el = document.getElementById(cfg.id);
-  if (!el) return false;
+  const inputEl = document.getElementById(cfg.id);
+  if (!inputEl) return false;
 
-  const raw = String(el.value || "").trim();
+  // If locked, render from gate snapshot
+  if (isLockedNow()) {
+    inputEl.disabled = true;
 
-  // IMPORTANT: empty -> do NOT update gate (to avoid false overwrite)
-  if (raw === "") {
+    const gate = initSoftGateIfMissing();
+    const item = gate?.soft?.items?.[cfg.ruleId];
+    const passed = item?.passed === true;
+
+    updateChecklist(localKey, passed);
+    updateInputUI(localKey, passed, passed ? cfg.passText : cfg.failText);
+    return passed;
+  }
+
+  inputEl.disabled = false;
+
+  const raw = String(inputEl.value || "").trim();
+  const sanitized = sanitizeByType(cfg, raw);
+
+  // Empty/invalid -> UI only, DO NOT write gate
+  if (!sanitized.hasValue) {
+    updateChecklist(localKey, false);
     updateInputUI(localKey, null, null);
     return false;
   }
 
-  let value = Number(raw);
-  if (Number.isNaN(value)) {
-    updateInputUI(localKey, false, "Giá trị không hợp lệ");
-    return false;
+  // sync clamped value back to input
+  if (String(raw) !== String(sanitized.value)) {
+    inputEl.value = String(sanitized.value);
   }
 
-  // clamp by type
-  if (cfg.type === "percentage") {
-    value = clamp(value, 0, 100);
-    el.value = String(value);
-  } else if (cfg.type === "number") {
-    if (value < 0) value = 0;
-    el.value = String(value);
-  }
-
-  const passed = computePassed(cfg, value);
+  const passed = computePassed(cfg, sanitized.value);
+  updateChecklist(localKey, passed);
   updateInputUI(localKey, passed, passed ? cfg.passText : cfg.failText);
 
+  // Write gate
   const gate = initSoftGateIfMissing();
   if (!gate) return passed;
 
-  // ensure structure
   gate.soft = gate.soft || { items: {} };
   gate.soft.items = gate.soft.items || {};
-  const ruleId = cfg.ruleId;
 
-  if (!gate.soft.items[ruleId]) {
-    gate.soft.items[ruleId] = { passed: false, note: "", fixed_at: null, regressed_at: null };
+  if (!gate.soft.items[cfg.ruleId]) {
+    gate.soft.items[cfg.ruleId] = { passed: false, note: "", fixed_at: null, regressed_at: null };
   }
 
-  const item = gate.soft.items[ruleId];
+  const item = gate.soft.items[cfg.ruleId];
+  const prevPassed = item.passed === true;
 
-  // pass/regress tracking
-  if (passed && !item.passed) {
+  item.passed = passed;
+  item.note = passed ? "" : (cfg.failText || "Chưa đạt");
+
+  if (passed) {
     item.fixed_at = item.fixed_at || new Date().toISOString();
     item.regressed_at = null;
-  } else if (!passed && item.passed) {
+  } else if (prevPassed && item.fixed_at) {
     item.regressed_at = new Date().toISOString();
   }
 
-  item.passed = passed;
-
-  // gate_status
-  const G = getGateStatusEnum();
-  const ids = getSoftKoIds();
-  const allPass = ids.every((id) => gate.soft.items[id]?.passed === true);
-
-  if (allPass) {
-    gate.gate_status = G.PASS;
-  } else {
-    const now = new Date();
-    const dlStr = gate?.soft?.deadline_at || gate?.deadline_at;
-    const dl = dlStr ? new Date(dlStr) : null;
-
-    if (!dl || Number.isNaN(dl.getTime())) gate.gate_status = G.SOFT_OVERDUE; // fail-closed
-    else gate.gate_status = now <= dl ? G.SOFT_PENDING : G.SOFT_OVERDUE;
-  }
+  gate.soft.items[cfg.ruleId] = item;
+  gate.gate_status = evaluateSoftGateStatus(gate);
 
   saveGate(gate);
+  reconcileLockWithGate(); // if becomes PASS, auto lock
   return passed;
 }
 
-// ---------- Recommendations + Modals ----------
-function getSoftRecommendation(localKey) {
-  const cfg = inputs[localKey];
-  if (!cfg) return "";
-  const sign = cfg.direction === "min" ? "≥" : "≤";
-  return `Cần đạt: ${sign} ${cfg.threshold}${cfg.unit}`;
+// ===== Progress + button =====
+function updateProgress() {
+  const gate = initSoftGateIfMissing();
+  if (!gate) return;
+
+  reconcileLockWithGate();
+
+  const keys = Object.keys(inputs);
+  let filledCount = 0;
+
+  keys.forEach((k) => {
+    const el = document.getElementById(inputs[k].id);
+    const filled = !!el && String(el.value || "").trim() !== "";
+    if (filled) filledCount += 1;
+  });
+
+  // progress text
+  const progressText = document.getElementById("progress-text");
+  if (progressText) progressText.textContent = `Đã nhập: ${filledCount}/${keys.length} chỉ số`;
+
+  // next button: enable when all 4 filled (then click to evaluate PASS/FAIL)
+  const nextBtn = document.getElementById("nextBtn");
+  if (nextBtn) {
+    const allFilled = keys.length > 0 && filledCount === keys.length;
+    nextBtn.disabled = !allFilled;
+    nextBtn.classList.toggle("disabled", !allFilled);
+
+    // show text (HTML button currently only has SVG)
+    ensureNextBtnHasText(nextBtn, "Xem kết quả");
+  }
+
+  // lock/unlock inputs
+  if (isLockedNow()) disableAllInputs();
+  else enableAllInputs();
 }
+
+// ===== Modals =====
+window.__softko_closeModal = function () {
+  const modal = document.getElementById("rejectionModal") || document.getElementById("successModal");
+  if (modal) modal.remove();
+};
 
 function showRejectionModalDetailed(failedDetails, gate) {
   const today = new Date();
@@ -417,11 +453,7 @@ function showRejectionModalDetailed(failedDetails, gate) {
       <div style="margin-bottom:10px;">
         <div style="font-weight:800;color:#991B1B;">• ${x.name}</div>
         <div style="color:#7F1D1D;font-weight:600;">Lý do: ${x.reason}</div>
-        ${
-          x.recommendation
-            ? `<div style="color:#374151;margin-top:6px;"><b>Gợi ý:</b><br>${x.recommendation}</div>`
-            : ""
-        }
+        ${x.recommendation ? `<div style="color:#374151;margin-top:6px;"><b>Gợi ý:</b><br>${x.recommendation}</div>` : ""}
       </div>
     `
     )
@@ -479,7 +511,16 @@ function showRejectionModalDetailed(failedDetails, gate) {
   document.body.insertAdjacentHTML("beforeend", modalHTML);
 }
 
+let __softRedirectTimer = null;
 function showSuccessModalAndRedirect(url, seconds) {
+  const old = document.getElementById("successModal");
+  if (old) old.remove();
+
+  if (__softRedirectTimer) {
+    clearInterval(__softRedirectTimer);
+    __softRedirectTimer = null;
+  }
+
   const modalHTML = `
     <div id="successModal" style="
       position: fixed; inset: 0; background: rgba(0,0,0,.6);
@@ -497,29 +538,31 @@ function showSuccessModalAndRedirect(url, seconds) {
     </div>
   `;
 
-  const old = document.getElementById("successModal");
-  if (old) old.remove();
   document.body.insertAdjacentHTML("beforeend", modalHTML);
 
   let t = seconds;
-  const timer = setInterval(() => {
+  __softRedirectTimer = setInterval(() => {
     t -= 1;
     const el = document.getElementById("countdown");
-    if (el) el.textContent = String(t);
+    if (el) el.textContent = String(Math.max(t, 0));
     if (t <= 0) {
-      clearInterval(timer);
+      clearInterval(__softRedirectTimer);
+      __softRedirectTimer = null;
       window.location.href = url;
     }
   }, 1000);
 }
 
-window.__softko_closeModal = function () {
-  const modal = document.getElementById("rejectionModal") || document.getElementById("successModal");
-  if (modal) modal.remove();
-};
+// ===== Actions =====
+function getSoftRecommendation(localKey) {
+  const cfg = inputs[localKey];
+  if (!cfg) return "";
+  const sign = cfg.direction === "min" ? "≥" : "≤";
+  return `Cần đạt: ${sign} ${cfg.threshold}${cfg.unit}`;
+}
 
-// ---------- Main action ----------
 function goNext() {
+  // validate all (sync UI + gate)
   Object.keys(inputs).forEach((k) => validateInput(k));
   updateProgress();
 
@@ -560,11 +603,11 @@ function goNext() {
   }
 
   // PASS -> lock & redirect
-  localStorage.setItem(LOCK_KEY, "1");
+  localStorage.setItem(SOFT_GATE_LOCK_KEY, "1");
   disableAllInputs();
   updateProgress();
 
-  // optional snapshot
+  // snapshot
   const data = {};
   Object.keys(inputs).forEach((k) => {
     const el = document.getElementById(inputs[k].id);
@@ -579,55 +622,79 @@ function goNext() {
   showSuccessModalAndRedirect("./KPI_SCORING.html", 10);
 }
 
-// ---------- Boot (robust) ----------
+// HTML inline onclick uses goBack()
+function goBack() {
+  // allow re-edit when going back
+  localStorage.removeItem(SOFT_GATE_LOCK_KEY);
+  window.location.href = "KO_GATE.html";
+}
+
+// ===== Restore (optional) =====
+function restoreSoftKOFromSession() {
+  const raw = sessionStorage.getItem("softKoData");
+  const data = raw ? safeParse(raw) : null;
+  if (!data) return;
+
+  Object.keys(inputs).forEach((k) => {
+    const el = document.getElementById(inputs[k].id);
+    if (!el) return;
+    if (data[k] !== undefined && data[k] !== null) el.value = String(data[k]);
+  });
+}
+
+// ===== Boot =====
 function bootSoftKO() {
   if (!requireHardGateOrRedirect()) return;
 
-  // Build config after DOM exists
   inputs = buildInputs();
-
-  // Init gate
   initSoftGateIfMissing();
 
-  // Lock behavior
-  const locked = localStorage.getItem(LOCK_KEY) === "1";
-  if (locked) disableAllInputs();
+  // reconcile lock before enabling/disabling
+  reconcileLockWithGate();
+
+  if (isLockedNow()) disableAllInputs();
   else enableAllInputs();
 
-  // Bind inputs
+  // bind inputs
   Object.keys(inputs).forEach((k) => {
     const el = document.getElementById(inputs[k].id);
     if (!el) return;
 
-    const onChange = () => {
-      if (locked) return;
+    const handler = () => {
+      if (isLockedNow()) return;
       validateInput(k);
       updateProgress();
     };
 
-    el.addEventListener("input", onChange);
-    el.addEventListener("blur", onChange);
+    el.addEventListener("input", handler);
+    el.addEventListener("blur", handler);
 
-    // initial sync
+    // initial paint
     if (String(el.value || "").trim() !== "") validateInput(k);
     else updateInputUI(k, null, null);
   });
 
-  // Bind button
+  // bind button
   const nextBtn = document.getElementById("nextBtn");
-  if (nextBtn) nextBtn.addEventListener("click", goNext);
+  if (nextBtn) {
+    nextBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      goNext();
+    });
+  }
 
+  restoreSoftKOFromSession();
   updateProgress();
 }
 
-// Run even if DOMContentLoaded already fired
+// run even if DOMContentLoaded already fired
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", bootSoftKO);
 } else {
   bootSoftKO();
 }
 
-// ---------- Export thresholds for other pages ----------
+// export thresholds (used elsewhere if needed)
 window.MRSM_GATE_THRESHOLDS = (function () {
   const out = {};
   for (const ruleId of getSoftKoIds()) {
