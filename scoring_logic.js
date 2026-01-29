@@ -9,7 +9,7 @@
  *    - Browser can't restore file inputs; if draft has 2 filenames -> treat as completed + score=100 (flag meta).
  */
 
-const KPI_RULES = {
+const BACKUP_KPI_RULES = {
     // OPERATION (0.50)
     "OP-01": { name: "Tỷ lệ giao hàng trễ (LSR)", method: "RANGE", direction: "LE", t1: 8, t2: 12, weight: 0.08 },
     "OP-02": { name: "Tỷ lệ đơn hàng không thành công (NFR)", method: "RANGE", direction: "LE", t1: 8, t2: 12, weight: 0.08 },
@@ -39,9 +39,43 @@ const KPI_RULES = {
     "SC-01": { name: "Doanh số 4w (Triệu VNĐ)", method: "RANGE", direction: "GE", t1: 50, t2: 30, weight: 0.075 },
     "SC-02": { name: "Số đơn hàng 4w", method: "RANGE", direction: "GE", t1: 250, t2: 150, weight: 0.045 },
     "SC-03": { name: "Tăng trưởng doanh số (%)", method: "RANGE", direction: "GE", t1: 5, t2: 0, weight: 0.03 },
-};
+};/* ============================================================
+   SSOT: Build KPI_ORDER & KPI_RULES from MRSM_CONFIG (mrsm_config.js)
+   - Nếu MRSM_CONFIG chưa load => fallback dùng BACKUP_* (fail-safe)
+   ============================================================ */
+let KPI_ORDER = [];
+const KPI_RULES = {};
 
-const KPI_ORDER = [
+(function initKpiRegistryFromSSOT() {
+    try {
+        const list = window.MRSM_CONFIG && Array.isArray(window.MRSM_CONFIG.kpis) ? window.MRSM_CONFIG.kpis : null;
+        if (list && list.length) {
+            list.forEach((k) => {
+                if (!k || !k.id) return;
+                KPI_ORDER.push(k.id);
+                const method = (k.method === "BOOLEAN") ? "BINARY" : (k.method || "RANGE");
+                const direction = k.direction || ((method === "BINARY") ? "BOOL" : "GE");
+                KPI_RULES[k.id] = {
+                    name: k.name || k.id,
+                    method,
+                    direction,
+                    t1: (k.t1 !== undefined ? k.t1 : 0),
+                    t2: (k.t2 !== undefined ? k.t2 : 0),
+                    weight: (k.weight !== undefined ? k.weight : 0),
+                };
+            });
+            return;
+        }
+    } catch (e) {
+        console.warn("[SSOT] initKpiRegistryFromSSOT failed:", e);
+    }
+
+    // Fallback
+    KPI_ORDER = (Array.isArray(BACKUP_KPI_ORDER) ? BACKUP_KPI_ORDER.slice() : []);
+    Object.assign(KPI_RULES, BACKUP_KPI_RULES || {});
+})();
+
+const BACKUP_KPI_ORDER = [
     "OP-01", "OP-02", "OP-03", "OP-04", "CS-01", "CS-02", "PEN-01",
     "BR-01", "BR-02", "BR-03",
     "CAT-01", "CAT-02", "CAT-03", "CAT-04",
