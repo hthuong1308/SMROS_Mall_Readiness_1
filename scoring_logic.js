@@ -569,35 +569,36 @@ function updateChecklistItem(ruleId) {
 }
 
 function updateProgress() {
-    let count = 0;
-    KPI_ORDER.forEach((id) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        if (isFilledStrict(id, el.value)) count++;
-    });
+  // Count filled KPIs using strict checker (handles BR-02 / CAT-02 multi-fields)
+  let count = 0;
+  KPI_ORDER.forEach((id) => {
+    if (isFilledStrict(id)) count++;
+  });
 
-    const c = $("progressCount");
-    const t = $("progressText");
-    if (c) c.textContent = String(count);
+  const c = $("progressCount");
+  const t = $("progressText");
+  if (c) c.textContent = String(count);
 
-    if (t) {
-        if (count === KPI_ORDER.length) t.textContent = "Hoàn tất";
-        else t.textContent = `Thiếu ${KPI_ORDER.length - count} KPI`;
+  if (t) {
+    if (count === KPI_ORDER.length) t.textContent = "Hoàn tất";
+    else t.textContent = `Thiếu ${KPI_ORDER.length - count} KPI`;
+  }
+
+  // Result button: always enabled (validation happens on click)
+  const btn = $("btnResult");
+  if (btn) btn.disabled = false;
+
+  // Review section: only show when all KPIs completed
+  const reviewSection = $("review-section");
+  if (reviewSection) {
+    const shouldShow = count === KPI_ORDER.length;
+    reviewSection.style.display = shouldShow ? "block" : "none";
+    if (shouldShow) updateReviewStep();
+    else {
+      const content = $("review-content");
+      if (content) content.innerHTML = "";
     }
-
-    // never disable result button
-    const btn = $("btnResult");
-    if (btn) btn.disabled = false;
-
-    // ✅ Review chỉ hiện khi đủ KPI
-    const reviewSection = $("review-section");
-    const reviewContent = $("review-content");
-    if (reviewSection) {
-        const shouldShow = count === KPI_ORDER.length;
-        reviewSection.style.display = shouldShow ? "block" : "none";
-        if (shouldShow) updateReviewStep();
-        else if (reviewContent) reviewContent.innerHTML = "";
-    }
+  }
 }
 
 
@@ -645,56 +646,63 @@ function getDisplayValue(ruleId) {
 }
 
 function updateReviewStep() {
-    const section = $("review-section");
-    const content = $("review-content"); // ✅ match KPI_SCORING.html
-    if (!content) return;
+  const section = $("review-section");
+  const content = $("review-content"); // ✅ match KPI_SCORING.html
+  if (!content) return;
 
-    // ✅ only render when review is visible (i.e., all KPIs completed)
-    const isVisible = section && section.style.display !== "none";
-    if (!isVisible) {
-        content.innerHTML = "";
-        return;
-    }
+  // ✅ Only render when review is actually visible (computed style),
+  // and ONLY when đủ 19/19 KPI (tránh render sớm do CSS display:none)
+  const isVisible = !!section && window.getComputedStyle(section).display !== "none";
+  if (!isVisible) {
+    content.innerHTML = "";
+    return;
+  }
 
-    const values = collectDraft();
+  const allDone = KPI_ORDER.every((id) => isFilledStrict(id));
+  if (!allDone) {
+    content.innerHTML = "";
+    return;
+  }
 
-    const groups = [
-        { key: "Vận hành", title: "Nhóm Vận hành", cls: "blue" },
-        { key: "Thương hiệu", title: "Nhóm Thương hiệu", cls: "purple" },
-        { key: "Danh mục", title: "Nhóm Danh mục", cls: "emerald" },
-        { key: "Quy mô", title: "Nhóm Quy mô", cls: "amber" },
-    ];
+  const values = collectDraft();
 
-    const byGroup = {};
-    groups.forEach((g) => (byGroup[g.key] = []));
+  const groups = [
+    { key: "Vận hành", title: "Nhóm Vận hành", cls: "blue" },
+    { key: "Thương hiệu", title: "Nhóm Thương hiệu", cls: "purple" },
+    { key: "Danh mục", title: "Nhóm Danh mục", cls: "emerald" },
+    { key: "Quy mô", title: "Nhóm Quy mô", cls: "amber" },
+  ];
 
-    KPI_ORDER.forEach((ruleId) => {
-        const rule = KPI_RULES[ruleId];
-        const raw = values[ruleId];
+  const byGroup = {};
+  groups.forEach((g) => (byGroup[g.key] = []));
 
-        const filled = isFilledStrict(ruleId, raw);
-        const displayValue = formatValue(ruleId, raw);
+  KPI_ORDER.forEach((ruleId) => {
+    const rule = KPI_RULES[ruleId];
+    const raw = values[ruleId];
 
-        const g = groupOfKpi(ruleId);
-        (byGroup[g] || (byGroup[g] = [])).push({
-            ruleId,
-            name: rule?.name || ruleId,
-            filled,
-            displayValue,
-        });
+    const filled = isFilledStrict(ruleId, raw);
+    const displayValue = formatValue(ruleId, raw);
+
+    const g = groupOfKpi(ruleId);
+    (byGroup[g] || (byGroup[g] = [])).push({
+      ruleId,
+      name: rule?.name || ruleId,
+      filled,
+      displayValue,
     });
+  });
 
-    content.innerHTML = groups
-        .map((g) => {
-            const items = byGroup[g.key] || [];
-            const okCount = items.filter((x) => x.filled).length;
-            const total = items.length;
+  content.innerHTML = groups
+    .map((g) => {
+      const items = byGroup[g.key] || [];
+      const okCount = items.filter((x) => x.filled).length;
+      const total = items.length;
 
-            const rows = items
-                .map((x) => {
-                    const missingCls = x.filled ? "" : " review-row--missing";
-                    const valueText = x.filled ? x.displayValue : "—";
-                    return `
+      const rows = items
+        .map((x) => {
+          const missingCls = x.filled ? "" : " review-row--missing";
+          const valueText = x.filled ? x.displayValue : "—";
+          return `
             <div class="review-row${missingCls}">
               <div class="review-kpi">
                 <span class="mono">${escapeHtml(x.ruleId)}</span>
@@ -704,10 +712,10 @@ function updateReviewStep() {
               <div class="review-value mono">${escapeHtml(valueText)}</div>
             </div>
           `;
-                })
-                .join("");
+        })
+        .join("");
 
-            return `
+      return `
         <div class="review-card ${g.cls}">
           <div class="review-card-header">
             <div class="review-card-title">${g.title}</div>
@@ -718,8 +726,8 @@ function updateReviewStep() {
           </div>
         </div>
       `;
-        })
-        .join("");
+    })
+    .join("");
 }
 
 
@@ -1234,83 +1242,83 @@ function forceBlankInputs() {
 
 
 function injectRestoreDraftButton() {
-    const actions = document.querySelector(".kpi-actions");
-    const btnResult = $("btnResult");
-    if (!actions || !btnResult) return;
+  const actions = document.querySelector(".kpi-actions");
+  const btnResult = $("btnResult");
+  if (!actions || !btnResult) return;
 
-    // already has button
-    if ($("btnRestoreDraft")) return;
+  // already has button
+  if ($("btnRestoreDraft")) return;
 
-    const params = new URLSearchParams(window.location.search);
-    const restoreDraft = params.get("restore_draft") === "1";
-    if (restoreDraft) return;
+  const params = new URLSearchParams(window.location.search);
+  const restoreDraft = params.get("restore_draft") === "1";
+  if (restoreDraft) return;
 
-    const draft = getDraft();
-    if (!draft) return;
+  const draft = getDraft();
+  if (!draft) return;
 
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.id = "btnRestoreDraft";
-    btn.className = "btn btn-secondary";
-    btn.textContent = "↩️ Khôi phục bản nháp";
-    btn.addEventListener("click", () => {
-        try {
-            loadDraft(); // will apply
-            KPI_ORDER.forEach(updateChecklistItem);
-            updateProgress();
-            showToast("success", "Đã khôi phục bản nháp", "Dữ liệu đã được điền lại từ draft (scoped theo user/shop/assessment).");
-        } catch (e) {
-            showToast("error", "Không thể khôi phục", e?.message || "Lỗi không xác định.");
-        }
-    });
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.id = "btnRestoreDraft";
+  btn.className = "btn btn-secondary";
+  btn.textContent = "↩️ Khôi phục bản nháp";
+  btn.addEventListener("click", () => {
+    try {
+      loadDraft(); // will apply
+      KPI_ORDER.forEach(updateChecklistItem);
+      updateProgress();
+      showToast("success", "Đã khôi phục bản nháp", "Dữ liệu đã được điền lại từ draft (scoped theo user/shop/assessment).");
+    } catch (e) {
+      showToast("error", "Không thể khôi phục", e?.message || "Lỗi không xác định.");
+    }
+  });
 
-    actions.insertBefore(btn, btnResult);
+  actions.insertBefore(btn, btnResult);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    if (!requireHardGateOrRedirect()) return;
-    if (!requireSoftGatePassOrRedirect()) return;
+  if (!requireHardGateOrRedirect()) return;
+  if (!requireSoftGatePassOrRedirect()) return;
 
-    // Sync UI text from rules
-    syncKpiCardsFromRules();
+  // Sync UI text from rules
+  syncKpiCardsFromRules();
 
-    const params = new URLSearchParams(window.location.search);
-    const restoreDraft = params.get("restore_draft") === "1";
+  const params = new URLSearchParams(window.location.search);
+  const restoreDraft = params.get("restore_draft") === "1";
 
-    // ✅ Default BLANK: clear any prefilled values (browser autofill / bfcache)
-    forceBlankInputs();
+  // ✅ Default BLANK: clear any prefilled values (browser autofill / bfcache)
+  forceBlankInputs();
 
-    // Some browsers re-inject autofill *after* DOMContentLoaded -> clear a few more times
-    if (!restoreDraft) {
-        let tries = 0;
-        const wipeLateAutofill = () => {
-            tries++;
-            const anyFilled = KPI_ORDER.some((id) => {
-                const el = document.getElementById(id);
-                return el && String(el.value || "").trim() !== "";
-            });
-            if (anyFilled) forceBlankInputs();
-            if (tries < 5) setTimeout(wipeLateAutofill, 80);
-        };
-        setTimeout(wipeLateAutofill, 0);
-        window.addEventListener("pageshow", (e) => {
-            if (e && e.persisted) forceBlankInputs();
-        });
-    }
+  // Some browsers re-inject autofill *after* DOMContentLoaded -> clear a few more times
+  if (!restoreDraft) {
+    let tries = 0;
+    const wipeLateAutofill = () => {
+      tries++;
+      const anyFilled = KPI_ORDER.some((id) => {
+        const el = document.getElementById(id);
+        return el && String(el.value || "").trim() !== "";
+      });
+      if (anyFilled) forceBlankInputs();
+      if (tries < 5) setTimeout(wipeLateAutofill, 80);
+    };
+    setTimeout(wipeLateAutofill, 0);
+    window.addEventListener("pageshow", (e) => {
+      if (e && e.persisted) forceBlankInputs();
+    });
+  }
 
-    // ✅ Only rehydrate when explicitly requested
-    if (restoreDraft) {
-        loadDraft();
-    }
+  // ✅ Only rehydrate when explicitly requested
+  if (restoreDraft) {
+    loadDraft();
+  }
 
-    // Checklist
-    renderChecklist();
-    KPI_ORDER.forEach(updateChecklistItem);
-    updateProgress(); // review-section auto shows only when complete
+  // Checklist
+  renderChecklist();
+  KPI_ORDER.forEach(updateChecklistItem);
+  updateProgress(); // review-section auto shows only when complete
 
-    // Bind events
-    bindEvents();
+  // Bind events
+  bindEvents();
 
-    // If there is a saved draft (but not auto-filled), offer a restore button
-    injectRestoreDraftButton();
+  // If there is a saved draft (but not auto-filled), offer a restore button
+  injectRestoreDraftButton();
 });
