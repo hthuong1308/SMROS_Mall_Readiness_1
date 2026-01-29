@@ -793,6 +793,115 @@
             font-size: 13px;
             border-radius: 8px;
         }
+
+        /* ===== Review UI (Grouped Cards) ===== */
+        .review-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        @media (max-width:720px) {
+            .review-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .review-card {
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: none;
+        }
+
+        .review-card-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            background: #F9FAFB;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .review-card-icon {
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .review-card-title {
+            font-size: 14px;
+            font-weight: 900;
+            color: var(--text);
+        }
+
+        .review-rows {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .review-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 10px 14px;
+            border-top: 1px solid #F3F4F6;
+        }
+
+        .review-row:nth-child(odd) {
+            background: #F9FAFB;
+        }
+
+        .review-row:nth-child(even) {
+            background: #FFFFFF;
+        }
+
+        .review-label {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .review-id {
+            font-size: 12px;
+            font-weight: 900;
+            color: var(--muted);
+        }
+
+        .review-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: #374151;
+            word-break: break-word;
+        }
+
+        .review-value {
+            font-size: 13px;
+            font-weight: 900;
+            color: var(--text);
+            text-align: right;
+            max-width: 52%;
+            word-break: break-word;
+        }
+
+        .review-row--missing {
+            background: var(--danger-bg) !important;
+            border-top-color: rgba(153, 27, 27, .12);
+        }
+
+        .review-row--missing .review-id {
+            color: var(--danger-text);
+        }
+
+        .review-row--missing .review-name {
+            color: var(--danger-text);
+        }
+
+        .review-row--missing .review-value {
+            color: var(--danger-text);
+        }
     </style>
 </head>
 
