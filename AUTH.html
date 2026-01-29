@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Đăng nhập — SMRSS</title>
+    <style>
+        :root {
+            --shopee-orange: #EE4D2D;
+            --orange-light: #FFF7ED;
+            --orange-hover: #D73211;
+            --bg-page: #F9FAFB;
+            --bg-white: #FFFFFF;
+            --text-primary: #111827;
+            --text-secondary: #6B7280;
+            --text-muted: #9CA3AF;
+            --border-color: #E5E7EB;
+            --border-focus: #FED7AA;
+            --success-green: #10B981;
+            --success-bg: #D1FAE5;
+            --error-red: #EF4444;
+            --error-bg: #FEF3F2;
+            --error-border: #FEE2E2;
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
+            --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: var(--bg-page);
+            color: var(--text-primary);
+            line-height: 1.6;
+            height: 100%;
+        }
+
+        /* ===== HEADER ===== */
+        .auth-header {
+            background: var(--bg-white);
+            border-bottom: 2px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .auth-header-container {
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 20px 32px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .logo-box {
+            width: 48px;
+            height: 48px;
+            background: var(--shopee-orange);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            font-size: 20px;
+            color: var(--bg-white);
+            letter-spacing: -0.5px;
+        }
+
+        .header-text {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .header-title {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .header-subtitle {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            letter-spacing: 0.5px;
+        }
+
+        /* ===== MAIN CONTAINER ===== */
+        .auth-main {
+            min-height: calc(100vh - 180px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 48px 32px;
+        }
+
+        .auth-wrapper {
+            max-width: 1200px;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 64px;
+            align-items: center;
+        }
+
+        /* ===== BRANDING PANEL ===== */
+        .branding-panel {
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+        }
+
+        .branding-header {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .branding-logo {
+            width: 72px;
+            height: 72px;
+            background: var(--shopee-orange);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 900;
+            font-size: 32px;
+            color: var(--bg-white);
+            letter-spacing: -1px;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .branding-title {
+            font-size: 32px;
+            font-weight: 900;
+            color: var(--text-primary);
+            line-height: 1.2;
+        }
+
+        .branding-acronym {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            letter-spacing: 1px;
+        }
+
+        .branding-benefits {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding: 24px;
+            background: var(--bg-white);
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .benefit-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .benefit-icon {
+            width: 24px;
+            height: 24px;
+            background: var(--success-bg);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            color: var(--success-green);
+            font-weight: 900;
+            font-size: 14px;
+        }
+
+        /* ===== AUTH CARD ===== */
+        .auth-card {
+            background: var(--bg-white);
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 40px;
+            box-shadow: var(--shadow-lg);
+            transition: all 0.2s ease;
+        }
+
+        .auth-card:hover {
+            box-shadow: 0 20px 25px rgba(0, 0, 0, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .auth-card-header {
+            margin-bottom: 32px;
+            text-align: center;
+        }
+
+        .auth-card-title {
+            font-size: 28px;
+            font-weight: 900;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .auth-card-hint {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .auth-form {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .input-label {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .auth-input {
+            width: 100%;
+            padding: 14px 16px;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            background: var(--bg-white);
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .auth-input:focus {
+            outline: none;
+            border-color: var(--shopee-orange);
+            box-shadow: 0 0 0 3px var(--border-focus);
+        }
+
+        .auth-input::placeholder {
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+            color: var(--text-secondary);
+            font-size: 18px;
+            transition: color 0.2s ease;
+        }
+
+        .password-toggle:hover {
+            color: var(--text-primary);
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 14px 24px;
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--bg-white);
+            background: var(--shopee-orange);
+            border: 2px solid var(--shopee-orange);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+            margin-top: 8px;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--orange-hover);
+            border-color: var(--orange-hover);
+            box-shadow: var(--shadow-md);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            width: 100%;
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+            background: var(--bg-white);
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--shopee-orange);
+            color: var(--shopee-orange);
+            box-shadow: var(--shadow-sm);
+            transform: translateY(-1px);
+        }
+
+        .btn-ghost {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            background: transparent;
+            border: none;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+            margin-top: 16px;
+        }
+
+        .btn-ghost:hover {
+            color: var(--shopee-orange);
+            background: var(--orange-light);
+        }
+
+        .error-message {
+            padding: 12px 16px;
+            background: var(--error-bg);
+            border: 2px solid var(--error-border);
+            border-radius: var(--radius-sm);
+            color: var(--error-red);
+            font-size: 14px;
+            font-weight: 600;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .divider {
+            margin: 24px 0;
+            text-align: center;
+            position: relative;
+        }
+
+        .divider::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 50%;
+            height: 2px;
+            background: var(--border-color);
+        }
+
+        .divider-text {
+            position: relative;
+            display: inline-block;
+            padding: 0 16px;
+            background: var(--bg-white);
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+
+        /* ===== FOOTER ===== */
+        .auth-footer {
+            background: #111827;
+            color: #D1D5DB;
+            padding: 32px;
+            margin-top: auto;
+        }
+
+        .auth-footer-container {
+            max-width: 1440px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            align-items: center;
+            text-align: center;
+        }
+
+        .footer-title {
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--bg-white);
+        }
+
+        .footer-subtitle {
+            font-size: 13px;
+            font-weight: 600;
+            color: #9CA3AF;
+        }
+
+        .footer-meta {
+            font-size: 12px;
+            font-weight: 600;
+            color: #6B7280;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 1024px) {
+            .auth-wrapper {
+                grid-template-columns: 1fr;
+                gap: 48px;
+            }
+
+            .branding-panel {
+                text-align: center;
+                align-items: center;
+            }
+
+            .branding-benefits {
+                max-width: 500px;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .auth-header-container {
+                padding: 16px 20px;
+            }
+
+            .logo-box {
+                width: 40px;
+                height: 40px;
+                font-size: 16px;
+            }
+
+            .header-title {
+                font-size: 16px;
+            }
+
+            .header-subtitle {
+                font-size: 12px;
+            }
+
+            .auth-main {
+                padding: 32px 20px;
+            }
+
+            .auth-card {
+                padding: 28px 24px;
+            }
+
+            .branding-title {
+                font-size: 24px;
+            }
+
+            .branding-acronym {
+                font-size: 14px;
+            }
+
+            .branding-logo {
+                width: 56px;
+                height: 56px;
+                font-size: 24px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- HEADER -->
+    <header class="auth-header">
+        <div class="auth-header-container">
+            <div class="logo-box">SM</div>
+            <div class="header-text">
+                <div class="header-title">Shopee Mall Readiness Scoring System</div>
+                <div class="header-subtitle">SMRSS — KPI-Based Assessment Framework</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="auth-main">
+        <div class="auth-wrapper">
+            <!-- BRANDING PANEL -->
+            <section class="branding-panel">
+                <div class="branding-header">
+                    <div class="branding-logo">SM</div>
+                    <h1 class="branding-title">Shopee Mall Readiness Scoring System</h1>
+                    <p class="branding-acronym">SMRSS — KPI-Based Assessment Framework</p>
+                </div>
+
+                <div class="branding-benefits">
+                    <div class="benefit-item">
+                        <div class="benefit-icon">✓</div>
+                        <span>Đánh giá toàn diện 19 KPI theo tiêu chuẩn Shopee Mall</span>
+                    </div>
+                    <div class="benefit-item">
+                        <div class="benefit-icon">✓</div>
+                        <span>Dashboard trực quan với phân tích ưu tiên tối ưu</span>
+                    </div>
+                    <div class="benefit-item">
+                        <div class="benefit-icon">✓</div>
+                        <span>Đưa ra các gợi ý cụ thể giúp cải thiện điểm readiness cho doanh nghiệp</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- AUTH CARD -->
+            <section class="auth-card">
+                <div class="auth-card-header">
+                    <h2 class="auth-card-title" id="authTitle">Đăng nhập</h2>
+                    <p class="auth-card-hint" id="authHint">Nếu bạn chưa có tài khoản, hãy chuyển sang Đăng ký.</p>
+                </div>
+
+                <!-- LOGIN FORM -->
+                <form class="auth-form" id="loginForm">
+                    <div class="input-group">
+                        <label class="input-label" for="loginEmail">Email</label>
+                        <input type="email" id="loginEmail" class="auth-input" placeholder="you@example.com" required />
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label" for="loginPassword">Mật khẩu</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="loginPassword" class="auth-input" placeholder="••••••••"
+                                required />
+                            <button type="button" class="password-toggle" id="toggleLoginPassword">👁️</button>
+                        </div>
+                    </div>
+                    <div style="display:flex; justify-content:flex-end;">
+                        <button type="button" id="forgotLink" class="btn-ghost" style="margin-top:0;">
+                            Quên mật khẩu?
+                        </button>
+                    </div>
+
+                    <div class="error-message" id="loginError"></div>
+
+                    <button type="submit" class="btn-primary" id="btnLogin">Đăng nhập</button>
+
+                    <div class="divider"><span class="divider-text">hoặc</span></div>
+
+                    <button type="button" class="btn-secondary" id="goRegister">
+                        Chưa có tài khoản? Đăng ký
+                    </button>
+
+                    <button type="button" class="btn-ghost" onclick="window.location.href='Homepage.html'">
+                        ← Quay về Homepage
+                    </button>
+                </form>
+
+                <!-- REGISTER FORM (UI khác) -->
+                <form class="auth-form" id="registerForm" style="display:none;">
+                    <div class="input-group">
+                        <label class="input-label" for="regUsername">Tên đăng nhập (Username)</label>
+                        <input id="regUsername" class="auth-input" placeholder="Email / SĐT / tên tự chọn" required />
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label" for="regFullName">Họ và Tên</label>
+                        <input id="regFullName" class="auth-input" placeholder="Nguyễn Văn A" required />
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label" for="regEmail">Email</label>
+                        <input type="email" id="regEmail" class="auth-input" placeholder="you@example.com" required />
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label" for="regPhone">Số điện thoại</label>
+                        <input id="regPhone" class="auth-input" placeholder="09xxxxxxxx" inputmode="tel" />
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label" for="regPassword">Mật khẩu</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="regPassword" class="auth-input" placeholder="Tối thiểu 6 ký tự"
+                                required />
+                            <button type="button" class="password-toggle" id="toggleRegPassword">👁️</button>
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <label class="input-label" for="regPassword2">Xác nhận mật khẩu</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="regPassword2" class="auth-input" placeholder="Nhập lại mật khẩu"
+                                required />
+                        </div>
+                    </div>
+
+                    <div class="error-message" id="regError"></div>
+
+                    <button type="submit" class="btn-primary" id="btnRegister">Tạo tài khoản</button>
+
+                    <button type="button" class="btn-secondary" id="goLogin">
+                        Đã có tài khoản? Đăng nhập
+                    </button>
+                </form>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="auth-footer">
+        <div class="auth-footer-container">
+            <div class="footer-title">Shopee Mall Readiness Scoring System</div>
+            <div class="footer-subtitle">Empowering merchants with data-driven insights</div>
+            <div class="footer-meta">© 2025 SMRSS. All rights reserved.</div>
+        </div>
+    </footer>
+    <script type="module" src="./firebase-init.js"></script>
+    <script type="module" src="./auth.js"></script>
+</body>
+
+</html>
