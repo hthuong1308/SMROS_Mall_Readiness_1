@@ -997,6 +997,22 @@ function saveAndRedirect(resultObj) {
     // lưu lại cho chắc
     sessionStorage.setItem("current_assessment_id", aid);
 
+    // ✅ persist per-assessment payload for static hosting (GitHub Pages)
+    try {
+        localStorage.setItem(`assessment_result_${aid}`, JSON.stringify(payload));
+    } catch (_) { }
+    // ✅ persist per-assessment record schema (so RESULTS/DASHBOARD can open by assessment_id later)
+    try {
+        const recRaw2 = localStorage.getItem("assessment_record_local");
+        const rec2 = recRaw2 ? JSON.parse(recRaw2) : null;
+        if (rec2 && typeof rec2 === "object") {
+            rec2.assessment_id = aid;
+            rec2.evaluated_at = payload.computedAt;
+            localStorage.setItem("assessment_record_local", JSON.stringify(rec2));
+            localStorage.setItem(`assessment_record_${aid}`, JSON.stringify(rec2));
+        }
+    } catch (_) { }
+
     // redirect
     window.location.href = `RESULTS.html?assessment_id=${encodeURIComponent(aid)}`;
 }
