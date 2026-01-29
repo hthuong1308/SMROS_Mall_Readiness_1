@@ -276,3 +276,38 @@ export async function saveAssessmentToFirestore() {
 
     return { ok: true, assessmentId };
 }
+
+
+
+/* ============================================================
+   Optional: Auto-save helper (used by RESULTS.html)
+   - Chạy an toàn: nếu chưa login / chưa init Firebase thì bỏ qua.
+   - Mặc định chỉ "poll" localStorage mỗi 12s để tránh quá nhiều write.
+   ============================================================ */
+export function initFirestoreAssessmentAutoSave(options = {}) {
+    const intervalMs = Number(options.intervalMs ?? 12000);
+
+    try {
+        if (!window._auth || !window._db) return; // firebase-init.js chưa load
+        if (!window._auth.currentUser) return;   // chưa đăng nhập
+    } catch (_) {
+        return;
+    }
+
+    // Lần đầu: cố gắng save luôn (nếu có dữ liệu)
+    saveAssessmentToFirestore().catch(() => { });
+
+    // Poll localStorage vì "storage event" không bắn trong cùng tab
+    let last = "";
+    window.__mrsm_autoSaveTimer && clearInterval(window.__mrsm_autoSaveTimer);
+    window.__mrsm_autoSaveTimer = setInterval(() => {
+        try {
+            const cur = localStorage.getItem("assessment_result") || "";
+            if (!cur) return;
+            if (cur !== last) {
+                last = cur;
+                saveAssessmentToFirestore().catch(() => { });
+            }
+        } catch (_) { }
+    }, Math.max(5000, intervalMs));
+}
