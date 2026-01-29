@@ -997,23 +997,41 @@ function saveAndRedirect(resultObj) {
     // lưu lại cho chắc
     sessionStorage.setItem("current_assessment_id", aid);
 
-    // ✅ persist per-assessment payload for static hosting (GitHub Pages)
+    // redirect
+
+    // ✅ Persist per-assessment snapshots (stable open by assessment_id)
     try {
         localStorage.setItem(`assessment_result_${aid}`, JSON.stringify(payload));
-    } catch (_) { }
-    // ✅ persist per-assessment record schema (so RESULTS/DASHBOARD can open by assessment_id later)
-    try {
-        const recRaw2 = localStorage.getItem("assessment_record_local");
-        const rec2 = recRaw2 ? JSON.parse(recRaw2) : null;
-        if (rec2 && typeof rec2 === "object") {
-            rec2.assessment_id = aid;
-            rec2.evaluated_at = payload.computedAt;
-            localStorage.setItem("assessment_record_local", JSON.stringify(rec2));
-            localStorage.setItem(`assessment_record_${aid}`, JSON.stringify(rec2));
+
+        const groupKeyFromId = (rid) => {
+            if (!rid) return "Operation";
+            if (rid.startsWith("OP-") || rid.startsWith("CS-") || rid.startsWith("PEN-") || rid.startsWith("CO-")) return "Operation";
+            if (rid.startsWith("BR-")) return "Brand";
+            if (rid.startsWith("CAT-")) return "Category";
+            if (rid.startsWith("SC-")) return "Scale";
+            return "Operation";
+        };
+
+        const recRaw = localStorage.getItem("assessment_record_local");
+        const rec = recRaw ? JSON.parse(recRaw) : null;
+        if (rec && typeof rec === "object") {
+            rec.assessment_id = aid;
+
+            const kpis = Array.isArray(rec.kpis) ? rec.kpis : [];
+            const groups = {};
+            ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
+                const items = kpis.filter((x) => groupKeyFromId(x.rule_id || x.id || x.kpiId || "") === g);
+                const wsum = items.reduce((sum, it) => sum + Number(it.weight_final ?? it.weight ?? 0), 0);
+                const contrib = items.reduce((sum, it) => sum + Number(it.score ?? 0) * Number(it.weight_final ?? it.weight ?? 0), 0);
+                groups[g] = { score: wsum > 0 ? contrib / wsum : 0, contribution: contrib };
+            });
+            rec.groups = groups;
+
+            localStorage.setItem("assessment_record_local", JSON.stringify(rec));
+            localStorage.setItem(`assessment_record_${aid}`, JSON.stringify(rec));
         }
     } catch (_) { }
 
-    // redirect
     window.location.href = `RESULTS.html?assessment_id=${encodeURIComponent(aid)}`;
 }
 
