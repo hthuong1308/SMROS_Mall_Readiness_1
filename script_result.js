@@ -996,33 +996,66 @@ function render(assess) {
 async function load() {
   const assessmentId = getQueryParam("assessment_id");
   const mode = getQueryParam("mode");
-  const isLocal =
+
+  const isLocalMode =
     mode === "local" ||
     String(assessmentId || "").startsWith("LOCAL_") ||
     window.location.protocol === "file:";
 
-  // ✅ Offline/local-first mode: không gọi API (GitHub Pages/static hosting không có /api)
-  if (!assessmentId || isLocal) {
-    const raw = localStorage.getItem("assessment_result");
+  // ✅ Static hosting guard (GitHub Pages / pure static): DO NOT call /api/*
+  const isStaticHost = window.location.protocol === "file:" || String(window.location.hostname || "").endsWith("github.io");
+
+  // Optional escape hatch: only call API if explicitly enabled
+  const useApi = getQueryParam("use_api") === "1";
+
+  const shouldUseApi = !!assessmentId && !isLocalMode && !isStaticHost && useApi;
+
+  // ✅ Local-first (default): ưu tiên localStorage/Firebase snapshot, không gọi /api trên GitHub Pages
+  if (!shouldUseApi) {
+    // 1) Prefer per-assessment record (stable when user opens bookmark by assessment_id)
+    let rec = null;
+    if (assessmentId) {
+      const recRaw = localStorage.getItem(`assessment_record_${assessmentId}`);
+      rec = recRaw ? safeParseJson(recRaw) : null;
+    }
+
+    // 2) Fallback: last local record (created at scoring time)
+    if (!rec) {
+      const recRaw2 = localStorage.getItem("assessment_record_local");
+      rec = recRaw2 ? safeParseJson(recRaw2) : null;
+    }
+
+    if (rec && !requireHardGateEvidenceOrRedirectLocal(rec)) return;
+
+    if (rec && rec.assessment_id) {
+      render(rec);
+      return;
+    }
+
+    // 3) Fallback: adapt from assessment_result payload
+    const raw =
+      (assessmentId ? localStorage.getItem(`assessment_result_${assessmentId}`) : null) ||
+      localStorage.getItem("assessment_result");
     const local = raw ? safeParseJson(raw) : null;
 
     if (local && !requireHardGateEvidenceOrRedirectLocal(local)) return;
 
     if (!local) {
-      renderEmpty("Thiếu assessment_id (hoặc local mode) và không có assessment_result trong localStorage.");
+      renderEmpty("Không có dữ liệu localStorage cho assessment này. Hãy chạy lại đánh giá từ KO → KPI để tạo kết quả.");
       return;
     }
 
     const assess = adaptLocalAssessment(local);
 
-    // ✅ LƯU record để DASHBOARD đọc được khi offline/file://
+    // cache for Dashboard open
     localStorage.setItem("assessment_record_local", JSON.stringify(assess));
+    if (assessmentId) localStorage.setItem(`assessment_record_${assessmentId}`, JSON.stringify(assess));
 
     render(assess);
     return;
   }
 
-  // ✅ Online mode: có assessment_id -> gọi API
+  // ✅ API mode (opt-in): có assessment_id -> gọi API
   try {
     const url = `/api/assessments/${encodeURIComponent(assessmentId)}`;
     const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
@@ -1038,15 +1071,20 @@ async function load() {
     }
 
     render(data);
-    localStorage.setItem("assessment_record_local", JSON.stringify({
-      ...data,
-      evaluated_at: data.evaluated_at || data.evaluatedAt || new Date().toISOString()
-    }));
+    localStorage.setItem(
+      "assessment_record_local",
+      JSON.stringify({
+        ...data,
+        evaluated_at: data.evaluated_at || data.evaluatedAt || new Date().toISOString(),
+      })
+    );
+    localStorage.setItem(`assessment_record_${data.assessment_id}`, JSON.stringify(data));
   } catch (err) {
     console.error(err);
     renderEmpty(err?.message || "Không thể gọi API.");
   }
 }
+
 
 /* ============================================================
    ✅ INIT (chỉ 1 lần)
