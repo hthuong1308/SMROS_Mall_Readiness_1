@@ -58,24 +58,34 @@ const KPI_DRAFT_KEY = "SMROS_KPI_DRAFT_V1";
 const KPI_COMPLETED_KEY = "SMROS_KPI_COMPLETED_V1";
 
 function getDraftKey() {
-    // Priority 1: sessionStorage
-    const sid = (sessionStorage.getItem("current_assessment_id") || "").trim();
-    if (sid) return "SMROS_DRAFT_" + sid;
+  // Draft key should be scoped by (uid + shop_id + assessment_id) to avoid leaking data across accounts/shops.
+  const uid = window._auth?.currentUser?.uid || localStorage.getItem("smros_uid") || "anon";
 
-    // Priority 2: URL param
-    try {
-        const qid = (new URL(window.location.href).searchParams.get("assessment_id") || "").trim();
-        if (qid) return "SMROS_DRAFT_" + qid;
-    } catch (_) { }
+  let shopId = "unknown";
+  try {
+    const shop = JSON.parse(localStorage.getItem("shop_info") || "{}");
+    shopId = shop.shop_id || shop.shopId || shopId;
+  } catch (_) {}
 
-    // Fallback
-    return "SMROS_DRAFT_TEMP";
+  const assessmentId = getAssessmentIdFromUrl() || "no_assessment";
+  return `${KPI_DRAFT_KEY}__${uid}__${shopId}__${assessmentId}`;
 }
 
 function getCompletedKey() {
-    const dk = getDraftKey();
-    if (dk === "SMROS_DRAFT_TEMP") return KPI_COMPLETED_KEY; // safe fallback
-    return "SMROS_KPI_COMPLETED_" + dk.replace("SMROS_DRAFT_", "");
+  const uid = window._auth?.currentUser?.uid || localStorage.getItem("smros_uid") || "anon";
+
+  let shopId = "unknown";
+  try {
+    const shop = JSON.parse(localStorage.getItem("shop_info") || "{}");
+    shopId = shop.shop_id || shop.shopId || shopId;
+  } catch (_) {}
+
+  const assessmentId = getAssessmentIdFromUrl() || "no_assessment";
+  return `${KPI_COMPLETED_KEY}__${uid}__${shopId}__${assessmentId}`;
+}
+
+function isDraftScopedKey(key) {
+  return String(key || "").startsWith(KPI_DRAFT_KEY + "__");
 }
 
 function safeJsonParse(s) { try { return JSON.parse(s); } catch { return null; } }
@@ -96,7 +106,7 @@ function resetDraft() {
     // Dọn legacy keys (nếu còn)
     try { localStorage.removeItem("SMROS_KPI_DRAFT_V1"); } catch (_) { }
     try { localStorage.removeItem("SMROS_KPI_COMPLETED_V1"); } catch (_) { }
-    try { localStorage.removeItem(KPI_COMPLETED_KEY); } catch (_) { }
+    try { localStorage.removeItem(getCompletedKey()); } catch (_) { }
 
     // Reload lại đúng URL hiện tại
     window.location.reload();
@@ -108,7 +118,7 @@ function getDraft() {
 
     // Migrate legacy draft to dynamic key (one-time best effort)
     if (!localStorage.getItem(key)) {
-        const legacy = localStorage.getItem(KPI_DRAFT_KEY);
+        const legacy = localStorage.getItem(getDraftKey());
         if (legacy) localStorage.setItem(key, legacy);
     }
 
@@ -242,7 +252,7 @@ function loadDraft() {
 
     // Migrate legacy draft to dynamic key if needed
     if (!raw) {
-        const legacy = localStorage.getItem(KPI_DRAFT_KEY);
+        const legacy = localStorage.getItem(getDraftKey());
         if (legacy) {
             localStorage.setItem(key, legacy);
             raw = legacy;
@@ -998,40 +1008,6 @@ function saveAndRedirect(resultObj) {
     sessionStorage.setItem("current_assessment_id", aid);
 
     // redirect
-
-    // ✅ Persist per-assessment snapshots (stable open by assessment_id)
-    try {
-        localStorage.setItem(`assessment_result_${aid}`, JSON.stringify(payload));
-
-        const groupKeyFromId = (rid) => {
-            if (!rid) return "Operation";
-            if (rid.startsWith("OP-") || rid.startsWith("CS-") || rid.startsWith("PEN-") || rid.startsWith("CO-")) return "Operation";
-            if (rid.startsWith("BR-")) return "Brand";
-            if (rid.startsWith("CAT-")) return "Category";
-            if (rid.startsWith("SC-")) return "Scale";
-            return "Operation";
-        };
-
-        const recRaw = localStorage.getItem("assessment_record_local");
-        const rec = recRaw ? JSON.parse(recRaw) : null;
-        if (rec && typeof rec === "object") {
-            rec.assessment_id = aid;
-
-            const kpis = Array.isArray(rec.kpis) ? rec.kpis : [];
-            const groups = {};
-            ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
-                const items = kpis.filter((x) => groupKeyFromId(x.rule_id || x.id || x.kpiId || "") === g);
-                const wsum = items.reduce((sum, it) => sum + Number(it.weight_final ?? it.weight ?? 0), 0);
-                const contrib = items.reduce((sum, it) => sum + Number(it.score ?? 0) * Number(it.weight_final ?? it.weight ?? 0), 0);
-                groups[g] = { score: wsum > 0 ? contrib / wsum : 0, contribution: contrib };
-            });
-            rec.groups = groups;
-
-            localStorage.setItem("assessment_record_local", JSON.stringify(rec));
-            localStorage.setItem(`assessment_record_${aid}`, JSON.stringify(rec));
-        }
-    } catch (_) { }
-
     window.location.href = `RESULTS.html?assessment_id=${encodeURIComponent(aid)}`;
 }
 
@@ -1130,26 +1106,76 @@ function bindEvents() {
 /* =========================
    Init
 ========================= */
+
+/* ============================================================
+   ✅ BLANK MODE helpers
+   - Prevent browser back-forward cache / autofill from rehydrating old values.
+   - Optional manual restore via URL param: ?restore_draft=1
+============================================================ */
+function forceBlankInputs() {
+  // Disable browser autofill as much as possible (best-effort).
+  document.querySelectorAll("input, select, textarea").forEach((el) => {
+    try { el.setAttribute("autocomplete", "off"); } catch (_) {}
+  });
+
+  // Clear KPI numeric inputs
+  document.querySelectorAll(".kpi-input").forEach((el) => { try { el.value = ""; } catch (_) {} });
+  // Clear selects
+  document.querySelectorAll(".kpi-select").forEach((el) => { try { el.value = ""; } catch (_) {} });
+
+  // Clear special fields (if present)
+  const extraIds = [
+    "BR-02_followers",
+    "BR-02_post",
+    "BR-02_postLink",
+    "BR-03_address",
+    "BR-01_url",
+    "CAT-02_white",
+    "CAT-02_life"
+  ];
+  extraIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) { try { el.value = ""; } catch (_) {} }
+  });
+
+  // Clear any status badges if UI has them
+  document.querySelectorAll(".status, .kpi-status, .badge-status").forEach((el) => {
+    try { el.textContent = ""; } catch (_) {}
+  });
+
+  // Hide review section until completion
+  const review = document.getElementById("review-section");
+  if (review) review.style.display = "none";
+}
+
+
 document.addEventListener("DOMContentLoaded", () => {
-    if (!requireHardGateOrRedirect()) return;
-    if (!requireSoftGatePassOrRedirect()) return;
+  if (!requireHardGateOrRedirect()) return;
+  if (!requireSoftGatePassOrRedirect()) return;
 
-    // Sync UI text from rules
-    syncKpiCardsFromRules();
+  // Sync UI text from rules
+  syncKpiCardsFromRules();
 
-    // Load draft before checklist/progress
-    loadDraft();
+  // Always clear first to defeat browser autofill / bfcache restore
+  forceBlankInputs();
 
+  // BLANK by default: do NOT rehydrate saved draft unless user explicitly requests it
+  const params = new URLSearchParams(window.location.search);
+  const restoreDraft = params.get("restore_draft") === "1";
 
+  if (restoreDraft) {
+    loadDraft(); // will fill inputs from scoped draft key (uid+shop+assessment)
+  } else {
+    // Optional: clear any previous draft for this scope so opening page is always blank
+    try { localStorage.removeItem(getDraftKey()); } catch (_) {}
+    try { localStorage.removeItem(getCompletedKey()); } catch (_) {}
+  }
 
-    // Review: render ngay khi load lại draft
-    updateReviewStep();
+  // Checklist
+  renderChecklist();
+  KPI_ORDER.forEach(updateChecklistItem);
+  updateProgress(); // review-section will auto show only when complete
 
-    // Checklist
-    renderChecklist();
-    KPI_ORDER.forEach(updateChecklistItem);
-    updateProgress();
-
-    // Bind events
-    bindEvents();
+  // Bind events
+  bindEvents();
 });
