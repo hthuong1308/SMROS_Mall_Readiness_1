@@ -1031,48 +1031,49 @@
         .review-row--missing .review-dots {
             border-bottom-color: rgba(220, 38, 38, .35);
         }
-    
 
-/* =========================
+
+        /* =========================
    RESPONSIVE FIX (Fit mọi màn hình)
 ========================= */
-.assessment-content, .header-content{
-  max-width: 1140px !important;
-  width: 100%;
-  margin: 0 auto;
-}
+        .assessment-content,
+        .header-content {
+            max-width: 1140px !important;
+            width: 100%;
+            margin: 0 auto;
+        }
 
-@media (min-width: 1025px){
-  .assessment-content{
-    display: grid;
-    grid-template-columns: 260px 1fr;
-    gap: 24px;
-    padding: 30px 20px !important;
-  }
-}
+        @media (min-width: 1025px) {
+            .assessment-content {
+                display: grid;
+                grid-template-columns: 260px 1fr;
+                gap: 24px;
+                padding: 30px 20px !important;
+            }
+        }
 
-@media (max-width: 1024px){
-  .assessment-content{
-    display: flex;
-    flex-direction: column;
-    padding: 20px 16px !important;
-  }
-  .sidebar{
-    position: relative;
-    top: 0;
-    width: 100%;
-    margin-bottom: 24px;
-    max-height: none;
-  }
-}
+        @media (max-width: 1024px) {
+            .assessment-content {
+                display: flex;
+                flex-direction: column;
+                padding: 20px 16px !important;
+            }
 
-.review-value{
-  word-break: break-word;
-  overflow-wrap: break-word;
-  min-width: 0;
-}
+            .sidebar {
+                position: relative;
+                top: 0;
+                width: 100%;
+                margin-bottom: 24px;
+                max-height: none;
+            }
+        }
 
-</style>
+        .review-value {
+            word-break: break-word;
+            overflow-wrap: break-word;
+            min-width: 0;
+        }
+    </style>
 </head>
 
 <body>
