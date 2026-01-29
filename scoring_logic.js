@@ -1104,12 +1104,12 @@ document.addEventListener("DOMContentLoaded", () => {
     syncKpiCardsFromRules();
 
     // Load draft before checklist/progress
-    loadDraft();
+    //loadDraft();
 
 
 
     // Review: render ngay khi load lại draft
-    updateReviewStep();
+    //updateReviewStep();
 
     // Checklist
     renderChecklist();
@@ -1119,3 +1119,4 @@ document.addEventListener("DOMContentLoaded", () => {
     // Bind events
     bindEvents();
 });
+
