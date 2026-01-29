@@ -66,7 +66,7 @@ function getDraftKey() {
     try {
         const qid = (new URL(window.location.href).searchParams.get("assessment_id") || "").trim();
         if (qid) return "SMROS_DRAFT_" + qid;
-    } catch (_) { }
+    } catch (_) {}
 
     // Fallback
     return "SMROS_DRAFT_TEMP";
@@ -79,6 +79,28 @@ function getCompletedKey() {
 }
 
 function safeJsonParse(s) { try { return JSON.parse(s); } catch { return null; } }
+
+
+function resetDraft() {
+    if (!confirm("Bạn có chắc muốn xóa toàn bộ dữ liệu đã nhập không?")) return;
+
+    const key = getDraftKey();
+    // Xóa draft theo assessment_id (nếu có)
+    if (key && key !== "SMROS_DRAFT_TEMP") {
+        localStorage.removeItem(key);
+    } else if (key) {
+        // temp draft cũng nên xóa nếu có
+        localStorage.removeItem(key);
+    }
+
+    // Dọn legacy keys (nếu còn)
+    try { localStorage.removeItem("SMROS_KPI_DRAFT_V1"); } catch (_) {}
+    try { localStorage.removeItem("SMROS_KPI_COMPLETED_V1"); } catch (_) {}
+    try { localStorage.removeItem(KPI_COMPLETED_KEY); } catch (_) {}
+
+    // Reload lại đúng URL hiện tại
+    window.location.reload();
+}
 
 function getDraft() {
     const key = getDraftKey();
@@ -1063,6 +1085,12 @@ function bindEvents() {
             });
         });
     }
+    // Reset draft
+    const resetBtn = document.getElementById("btnResetDraft");
+    if (resetBtn) {
+        resetBtn.addEventListener("click", resetDraft);
+    }
+
 }
 
 /* =========================
