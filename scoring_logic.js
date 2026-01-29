@@ -134,16 +134,22 @@ function resetDraft() {
 }
 
 function getDraft() {
-    const key = getDraftKey();
-    if (key === "SMROS_DRAFT_TEMP") return null;
+    const raw = localStorage.getItem(getDraftKey());
+    if (raw) return safeParseJson(raw);
 
-    // Migrate legacy draft to dynamic key (one-time best effort)
-    if (!localStorage.getItem(key)) {
-        const legacy = localStorage.getItem(getDraftKey());
-        if (legacy) localStorage.setItem(key, legacy);
+    // Backward compat: older builds saved draft to KPI_DRAFT_KEY (global)
+    const legacy = localStorage.getItem(KPI_DRAFT_KEY);
+    if (legacy) {
+        const obj = safeParseJson(legacy);
+        if (obj && typeof obj === "object") {
+            try {
+                localStorage.setItem(getDraftKey(), legacy);
+                localStorage.removeItem(KPI_DRAFT_KEY);
+            } catch (_) { }
+            return obj;
+        }
     }
-
-    return safeJsonParse(localStorage.getItem(key) || "");
+    return null;
 }
 
 function getDraftCat02Names() {
@@ -1231,37 +1237,51 @@ function forceBlankInputs() {
 
 
 function injectRestoreDraftButton() {
-    const actions = document.querySelector(".kpi-actions");
-    const btnResult = $("btnResult");
-    if (!actions || !btnResult) return;
+    // Only show when there is draft for this key AND user explicitly wants restore
+    const existing = localStorage.getItem(getDraftKey());
+    if (!existing) return;
 
-    // already has button
-    if ($("btnRestoreDraft")) return;
+    // If restore_draft=1 -> we already loaded, no need button
+    try {
+        const p = new URLSearchParams(window.location.search);
+        if (p.get("restore_draft") === "1") return;
+    } catch (_) { }
 
-    const params = new URLSearchParams(window.location.search);
-    const restoreDraft = params.get("restore_draft") === "1";
-    if (restoreDraft) return;
+    // Find action area (HTML uses .actions; older builds used .kpi-actions)
+    const host =
+        document.querySelector(".actions") ||
+        document.querySelector(".kpi-actions") ||
+        document.body;
 
-    const draft = getDraft();
-    if (!draft) return;
+    // Avoid duplicate
+    if (document.getElementById("btnRestoreDraft")) return;
 
     const btn = document.createElement("button");
-    btn.type = "button";
     btn.id = "btnRestoreDraft";
-    btn.className = "btn btn-secondary";
-    btn.textContent = "↩️ Khôi phục bản nháp";
+    btn.type = "button";
+    btn.className = "btn ghost";
+    btn.textContent = "↩️ Khôi phục dữ liệu đã lưu";
+    btn.title = "Tải lại dữ liệu draft lần trước cho đúng shop/assessment";
+
     btn.addEventListener("click", () => {
         try {
-            loadDraft(); // will apply
-            KPI_ORDER.forEach(updateChecklistItem);
-            updateProgress();
-            showToast("success", "Đã khôi phục bản nháp", "Dữ liệu đã được điền lại từ draft (scoped theo user/shop/assessment).");
+            // reload with restore flag
+            const u = new URL(window.location.href);
+            u.searchParams.set("restore_draft", "1");
+            window.location.href = u.toString();
         } catch (e) {
-            showToast("error", "Không thể khôi phục", e?.message || "Lỗi không xác định.");
+            // fallback
+            showToast("error", "Không thể khôi phục", e?.message || "Lỗi URL.");
         }
     });
 
-    actions.insertBefore(btn, btnResult);
+    // Insert before result button if exists
+    const btnResult = document.getElementById("btnResult");
+    if (btnResult && btnResult.parentElement) {
+        btnResult.parentElement.insertBefore(btn, btnResult);
+    } else {
+        host.appendChild(btn);
+    }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
