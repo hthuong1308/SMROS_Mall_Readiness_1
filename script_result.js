@@ -380,6 +380,46 @@ function calcGroupsAndKpisFromLocal(local) {
   return { kpis, groups };
 }
 
+/**
+ * Ensure assessment_record has:
+ * - kpis[] with numeric score/weight_final and normalized group keys
+ * - groups{} computed (Operation/Brand/Category/Scale)
+ * This fixes cases where scoring_logic.js saved groups: {} (expecting dashboard.js to compute),
+ * but RESULTS.html renders directly from assessment_record_local.
+ */
+function ensureGroupsFromRecord(record) {
+  if (!record || typeof record !== "object") return record;
+
+  const src = Array.isArray(record.kpis) ? record.kpis : [];
+  const kpis = src.map((k) => {
+    const id = k.rule_id || k.id || k.kpiId || "";
+    const score = Number(k.score ?? 0);
+    const w = Number(k.weight_final ?? k.weight ?? 0);
+    return {
+      ...k,
+      rule_id: id,
+      kpiId: id,
+      group: k.group || groupOf(id),
+      domain: k.domain || domainOf(id),
+      score: Number.isFinite(score) ? score : 0,
+      weight_final: Number.isFinite(w) ? w : 0,
+    };
+  });
+
+  const groups = {};
+  ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
+    const items = kpis.filter((x) => x.group === g);
+    const wsum = items.reduce((s, it) => s + (it.weight_final || 0), 0);
+    const contrib = items.reduce((s, it) => s + (it.score || 0) * (it.weight_final || 0), 0);
+    groups[g] = { score: wsum > 0 ? contrib / wsum : 0, contribution: contrib };
+  });
+
+  record.kpis = kpis;
+  record.groups = groups;
+  return record;
+}
+
+
 function safeParseJson(s) {
   try {
     return JSON.parse(s);
@@ -495,6 +535,13 @@ function adaptLocalAssessment(local) {
 ============================================================ */
 function render(assess) {
   $("loadingSection")?.remove();
+
+  // ✅ Fix: some records were saved with groups: {}. Compute groups from kpis for RESULT UI.
+  assess = ensureGroupsFromRecord(assess);
+  try {
+    localStorage.setItem("assessment_record_local", JSON.stringify(assess));
+    if (assess?.assessment_id) localStorage.setItem(`assessment_record_${assess.assessment_id}`, JSON.stringify(assess));
+  } catch (_) {}
 
   const assessmentId = assess.assessment_id || "—";
   const shopName = assess.shop?.shop_name || "—";
