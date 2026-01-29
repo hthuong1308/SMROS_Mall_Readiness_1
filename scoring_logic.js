@@ -57,8 +57,29 @@ function $(id) { return document.getElementById(id); }
 const KPI_DRAFT_KEY = "SMROS_KPI_DRAFT_V1";
 const KPI_COMPLETED_KEY = "SMROS_KPI_COMPLETED_V1";
 
+/* ============================================================
+   ✅ Assessment ID helper (SELF-CONTAINED)
+   - Tránh crash khi KPI_SCORING.html không load assessment-id.js
+   - Ưu tiên lấy assessment_id trên URL, fallback session/local
+============================================================ */
+function getAssessmentIdFromUrl() {
+  try {
+    const u = new URL(window.location.href);
+    const id = u.searchParams.get("assessment_id");
+    if (id) return id;
+  } catch (_) {}
+
+  // Fallbacks (best-effort)
+  const cand =
+    sessionStorage.getItem("current_assessment_id") ||
+    sessionStorage.getItem("assessment_id") ||
+    localStorage.getItem("current_assessment_id") ||
+    localStorage.getItem("assessment_id");
+  return cand || "";
+}
+
 function getDraftKey() {
-  // Draft key should be scoped by (uid + shop_id + assessment_id) to avoid leaking data across accounts/shops.
+  // Scoped draft key: (uid + shopId + assessmentId) để tránh lẫn dữ liệu nhiều tài khoản/nhiều shop
   const uid = window._auth?.currentUser?.uid || localStorage.getItem("smros_uid") || "anon";
 
   let shopId = "unknown";
