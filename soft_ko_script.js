@@ -290,30 +290,40 @@ function validateInput(key) {
  * Update UI for each metric
  */
 function updateInputUI(key, passed, message) {
-    const cfg = inputs[key];
-    const box = document.getElementById(cfg.id)?.closest('.metric-card');
-    if (!box) return;
+  const cfg = inputs[key];
+  if (!cfg) return;
 
-    const badge = box.querySelector('.status-badge');
-    const hint = box.querySelector('.metric-hint');
-    if (!badge || !hint) return;
+  // map localKey -> đúng ID bạn đang dùng trong HTML
+  const map = {
+    op04: { badge: 'badge-op04', hint: 'hint-op04' },
+    pen01:{ badge: 'badge-pen01', hint: 'hint-pen01' },
+    co01: { badge: 'badge-co01', hint: 'hint-co01' },
+    sc02: { badge: 'badge-sc02', hint: 'hint-sc02' },
+  };
 
-    if (passed === null) {
-        badge.textContent = 'Chưa nhập';
-        badge.className = 'status-badge pending';
-        hint.textContent = 'Nhập dữ liệu để kiểm tra';
-        return;
-    }
+  const ids = map[key];
+  if (!ids) return;
 
-    if (passed) {
-        badge.textContent = 'Đạt';
-        badge.className = 'status-badge success';
-        hint.textContent = message || cfg.passText;
-    } else {
-        badge.textContent = 'Không đạt';
-        badge.className = 'status-badge danger';
-        hint.textContent = message || cfg.failText;
-    }
+  const badgeEl = document.getElementById(ids.badge);
+  const hintEl  = document.getElementById(ids.hint);
+  if (!badgeEl || !hintEl) return;
+
+  if (passed === null) {
+    // trở về trạng thái mặc định
+    hintEl.textContent = 'Chưa nhập dữ liệu';
+    return;
+  }
+
+  if (passed) {
+    hintEl.textContent = message || cfg.passText;
+    // optional: đổi màu badge khi đạt
+    badgeEl.classList.remove('warning', 'info');
+    badgeEl.classList.add('pass');
+  } else {
+    hintEl.textContent = message || cfg.failText;
+    badgeEl.classList.remove('pass');
+    badgeEl.classList.add('fail');
+  }
 }
 
 /**
@@ -337,27 +347,44 @@ function enableAllInputs() {
  * Update progress bar
  */
 function updateProgress() {
-    let count = 0;
-    Object.keys(inputs).forEach((k) => {
-        const cfg = inputs[k];
-        const el = document.getElementById(cfg.id);
-        if (el && String(el.value).trim() !== '') {
-            count++;
-        }
-    });
+  let count = 0;
 
-    const total = Object.keys(inputs).length;
-    const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+  // map localKey -> checklist id trong HTML
+  const ck = {
+    op04: 'check-op04',
+    pen01: 'check-pen01',
+    co01: 'check-co01',
+    sc02: 'check-sc02',
+  };
 
-    const progressBar = document.getElementById('progressBar');
-    if (progressBar) {
-        progressBar.style.width = percent + '%';
+  Object.keys(inputs).forEach((k) => {
+    const cfg = inputs[k];
+    const el = document.getElementById(cfg.id);
+    const filled = el && String(el.value).trim() !== '';
+    if (filled) count++;
+
+    // update checklist UI
+    const row = document.getElementById(ck[k]);
+    if (row) {
+      row.classList.toggle('completed', filled);
+      const icon = row.querySelector('.check-icon');
+      if (icon) icon.textContent = filled ? '✓' : '○';
     }
+  });
 
-    const progressText = document.getElementById('progressText');
-    if (progressText) {
-        progressText.textContent = `${count}/${total}`;
-    }
+  // update text "Đã nhập: x/4 chỉ số"
+  const total = Object.keys(inputs).length;
+  const progressText = document.getElementById('progress-text');
+  if (progressText) progressText.textContent = `Đã nhập: ${count}/${total} chỉ số`;
+
+  // enable/disable nút Xem kết quả
+  const nextBtn = document.getElementById('nextBtn');
+  if (nextBtn) {
+    const ready = count === total;
+    nextBtn.disabled = !ready;
+    nextBtn.classList.toggle('disabled', !ready);
+    nextBtn.textContent = 'Xem kết quả';
+  }
 }
 
 /**
@@ -641,4 +668,5 @@ window.MRSM_GATE_THRESHOLDS = (function () {
         }
     }
     return result;
+
 })();
