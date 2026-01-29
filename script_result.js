@@ -1136,4 +1136,30 @@ async function load() {
 /* ============================================================
    ✅ INIT (chỉ 1 lần)
 ============================================================ */
-document.addEventListener("DOMContentLoaded", load);
+document.addEventListener("DOMContentLoaded", () => {
+  // Trang mở ra để trắng (không auto load)
+  $("loadingSection")?.remove();
+  $("mainRoot").innerHTML = `
+    <section class="section">
+      <div class="section-head">
+        <div class="left">🧾 RESULT</div>
+        <div class="right"><span class="pill">Ready</span></div>
+      </div>
+      <div class="section-body">
+        <div class="empty">
+          <div class="icon">🧠</div>
+          <h3>Sẵn sàng xem kết quả</h3>
+          <p>Nhấn nút <b>Xem kết quả</b> để tải dữ liệu và hiển thị báo cáo.</p>
+          <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+            <button class="btn primary" id="btnLoadResult" type="button">📌 Xem kết quả</button>
+            <a class="btn light" href="./KPI_SCORING.html">🧮 Quay về trang KPI</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+
+  // Chỉ load khi user bấm
+  document.getElementById("btnLoadResult")?.addEventListener("click", load);
+});
+
