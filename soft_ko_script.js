@@ -1,13 +1,12 @@
 /**
  * ============================================================
- * SOFT_KO_SCRIPT.JS (FULL FIXED - MATCH SOFT_KO.html)
+ * SOFT_KO_SCRIPT.JS (UPGRADED MODAL + RECOMMENDATIONS + STAY ON SOFT_KO)
  * ============================================================
- * Fixes:
- * 1) Lock dynamic + reconcile lock with gate_status (no "stuck disabled")
- * 2) UI selectors match SOFT_KO.html ids: op04/pen01/co01/sc02, badge-*, hint-*, check-*, progress-text, nextBtn
- * 3) Guard Hard KO (fail-closed) + soft gate init/migrate
- * 4) Validate: clamp by type; do NOT write gate when empty
- * 5) Next button enabled when all 4 filled; clicking -> PASS shows success modal + lock + redirect; otherwise rejection modal
+ * Changes:
+ * 1) Rejection modal redesigned: prominent cards + current value + requirement + status
+ * 2) Integrate recommendation.js (window.RECOMMENDATIONS) for actions
+ * 3) "Quay lại sửa" stays on SOFT_KO: closes modal + scroll/focus first failed item
+ * 4) Keeps lock dynamic fix (no stuck disabled)
  * ============================================================
  */
 
@@ -40,9 +39,16 @@ function formatDate(date) {
   if (Number.isNaN(d.getTime())) return String(date);
   return d.toLocaleDateString("vi-VN", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
+function escapeHtml(str) {
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 
 function getGateStatusEnum() {
-  // if MRSM_CONFIG exists, prefer it
   return (
     window.MRSM_CONFIG?.GATE_STATUS || {
       PASS: "PASS",
@@ -66,8 +72,23 @@ function getLabel(ruleId) {
 }
 
 function getRuleSpec(ruleId) {
-  // if later you add SSOT rules in MRSM_CONFIG, plug here
   return SOFT_KO_DEFAULTS[ruleId] || null;
+}
+
+function localKeyToRuleId(localKey) {
+  return RULE_MAP[localKey];
+}
+
+function getRequirementText(cfg) {
+  const sign = cfg.direction === "min" ? "≥" : "≤";
+  return `${sign} ${cfg.threshold}${cfg.unit || ""}`;
+}
+
+function getInputValue(localKey) {
+  const cfg = inputs[localKey];
+  if (!cfg) return "";
+  const el = document.getElementById(cfg.id);
+  return el ? String(el.value ?? "").trim() : "";
 }
 
 // ===== Hard KO guard (fail-closed) =====
@@ -94,11 +115,9 @@ function buildInputs() {
     const spec = getRuleSpec(ruleId);
     if (!spec) continue;
 
-    // convert ruleId -> localKey using RULE_MAP reverse
     const localKey = Object.keys(RULE_MAP).find((k) => RULE_MAP[k] === ruleId);
     if (!localKey) continue;
 
-    // only include if HTML has input id
     const inputEl = document.getElementById(localKey);
     if (!inputEl) continue;
 
@@ -127,7 +146,6 @@ function migrateSoftGate(gate) {
     if (!gate.soft || typeof gate.soft !== "object") gate.soft = {};
     if (!gate.soft.items || typeof gate.soft.items !== "object") gate.soft.items = {};
 
-    // legacy deadline support
     if (!gate.soft.deadline_at && gate.deadline_at) gate.soft.deadline_at = gate.deadline_at;
 
     const allowed = new Set(getSoftKoIds());
@@ -162,7 +180,6 @@ function initSoftGateIfMissing() {
     }
   }
 
-  // Use verifiedAt from Hard KO if available
   const hardRaw = sessionStorage.getItem(HARD_KO_KEY);
   const hard = hardRaw ? safeParse(hardRaw) : null;
 
@@ -178,15 +195,14 @@ function initSoftGateIfMissing() {
   const G = getGateStatusEnum();
   const gate = {
     verified_at: verifiedAt.toISOString(),
-    gate_status: G.SOFT_PENDING, // G1
+    gate_status: G.SOFT_PENDING,
     soft: {
       deadline_at: deadlineAt.toISOString(),
       items,
     },
   };
 
-  gate.deadline_at = gate.soft.deadline_at; // legacy compat
-
+  gate.deadline_at = gate.soft.deadline_at;
   localStorage.setItem(SOFT_GATE_KEY, JSON.stringify(gate));
   return gate;
 }
@@ -211,7 +227,7 @@ function evaluateSoftGateStatus(gate) {
   return now <= deadline ? G.SOFT_PENDING : G.SOFT_OVERDUE;
 }
 
-// ===== Lock logic (THE FIX) =====
+// ===== Lock logic (dynamic) =====
 function reconcileLockWithGate() {
   const gate = initSoftGateIfMissing();
   const G = getGateStatusEnum();
@@ -219,16 +235,12 @@ function reconcileLockWithGate() {
   const lockedKey = localStorage.getItem(SOFT_GATE_LOCK_KEY) === "1";
   const gatePass = gate?.gate_status === G.PASS;
 
-  // If lockKey exists but gate NOT PASS -> remove to allow editing
   if (lockedKey && !gatePass) {
     localStorage.removeItem(SOFT_GATE_LOCK_KEY);
   }
-
-  // If PASS -> ensure lock key
   if (gatePass) {
     localStorage.setItem(SOFT_GATE_LOCK_KEY, "1");
   }
-
   return localStorage.getItem(SOFT_GATE_LOCK_KEY) === "1";
 }
 
@@ -277,12 +289,12 @@ function updateInputUI(localKey, passed, message) {
   }
 }
 
-function updateChecklist(localKey, filledOrPassed) {
+function updateChecklist(localKey, passedOrFilled) {
   const row = document.getElementById(`check-${localKey}`);
   if (!row) return;
-  row.classList.toggle("completed", !!filledOrPassed);
+  row.classList.toggle("completed", !!passedOrFilled);
   const icon = row.querySelector(".check-icon");
-  if (icon) icon.textContent = filledOrPassed ? "✓" : "○";
+  if (icon) icon.textContent = passedOrFilled ? "✓" : "○";
 }
 
 function ensureNextBtnHasText(btn, text) {
@@ -293,6 +305,26 @@ function ensureNextBtnHasText(btn, text) {
     btn.appendChild(span);
   }
   span.textContent = text;
+}
+
+function scrollToAndFocus(localKey) {
+  const cfg = inputs[localKey];
+  if (!cfg) return;
+
+  const inputEl = document.getElementById(cfg.id);
+  if (!inputEl) return;
+
+  // scroll to metric card (input -> metric-card)
+  const card = inputEl.closest(".metric-card") || inputEl;
+  card.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  // focus after scroll a bit
+  setTimeout(() => {
+    try { inputEl.focus({ preventScroll: true }); } catch { inputEl.focus(); }
+    // quick highlight animation
+    card.classList.add("__softko_pulse");
+    setTimeout(() => card.classList.remove("__softko_pulse"), 900);
+  }, 300);
 }
 
 // ===== Validation =====
@@ -322,7 +354,6 @@ function validateInput(localKey) {
   const inputEl = document.getElementById(cfg.id);
   if (!inputEl) return false;
 
-  // If locked, render from gate snapshot
   if (isLockedNow()) {
     inputEl.disabled = true;
 
@@ -347,10 +378,8 @@ function validateInput(localKey) {
     return false;
   }
 
-  // sync clamped value back to input
-  if (String(raw) !== String(sanitized.value)) {
-    inputEl.value = String(sanitized.value);
-  }
+  // sync clamped
+  if (String(raw) !== String(sanitized.value)) inputEl.value = String(sanitized.value);
 
   const passed = computePassed(cfg, sanitized.value);
   updateChecklist(localKey, passed);
@@ -384,7 +413,7 @@ function validateInput(localKey) {
   gate.gate_status = evaluateSoftGateStatus(gate);
 
   saveGate(gate);
-  reconcileLockWithGate(); // if becomes PASS, auto lock
+  reconcileLockWithGate();
   return passed;
 }
 
@@ -404,30 +433,87 @@ function updateProgress() {
     if (filled) filledCount += 1;
   });
 
-  // progress text
   const progressText = document.getElementById("progress-text");
   if (progressText) progressText.textContent = `Đã nhập: ${filledCount}/${keys.length} chỉ số`;
 
-  // next button: enable when all 4 filled (then click to evaluate PASS/FAIL)
   const nextBtn = document.getElementById("nextBtn");
   if (nextBtn) {
     const allFilled = keys.length > 0 && filledCount === keys.length;
     nextBtn.disabled = !allFilled;
     nextBtn.classList.toggle("disabled", !allFilled);
-
-    // show text (HTML button currently only has SVG)
     ensureNextBtnHasText(nextBtn, "Xem kết quả");
   }
 
-  // lock/unlock inputs
   if (isLockedNow()) disableAllInputs();
   else enableAllInputs();
+}
+
+// ===== Recommendation integration (recommendation.js) =====
+function getRecommendationActions(ruleId) {
+  // Support multiple shapes (fail-safe):
+  // - window.RECOMMENDATIONS[ruleId] = { actions: [...] } OR [...]
+  // - window.RECOMMENDATIONS is array of { id/kpiId/ruleId, actions }
+  // Each action may be string OR { title, desc, steps, links }
+  const rec = window.RECOMMENDATIONS;
+  if (!rec) return [];
+
+  try {
+    // object map
+    if (typeof rec === "object" && !Array.isArray(rec)) {
+      const x = rec[ruleId];
+      if (!x) return [];
+      if (Array.isArray(x)) return x;
+      if (Array.isArray(x.actions)) return x.actions;
+      if (Array.isArray(x.recommendations)) return x.recommendations;
+      return [];
+    }
+
+    // array
+    if (Array.isArray(rec)) {
+      const found = rec.find((r) => (r?.kpiId || r?.id || r?.ruleId) === ruleId);
+      if (!found) return [];
+      if (Array.isArray(found.actions)) return found.actions;
+      if (Array.isArray(found.recommendations)) return found.recommendations;
+      return [];
+    }
+  } catch (e) {
+    console.warn("[SoftKO] getRecommendationActions error:", e);
+  }
+
+  return [];
+}
+
+function renderActionsHtml(actions) {
+  if (!actions || !actions.length) return "";
+
+  const rows = actions.slice(0, 6).map((a) => {
+    if (typeof a === "string") {
+      return `<li class="sk-item">${escapeHtml(a)}</li>`;
+    }
+    const title = escapeHtml(a.title || a.name || "Hành động");
+    const desc = escapeHtml(a.desc || a.description || "");
+    const steps = Array.isArray(a.steps) ? a.steps.slice(0, 4).map(s => `<li>${escapeHtml(s)}</li>`).join("") : "";
+    return `
+      <li class="sk-item">
+        <div class="sk-act-title">${title}</div>
+        ${desc ? `<div class="sk-act-desc">${desc}</div>` : ""}
+        ${steps ? `<ul class="sk-steps">${steps}</ul>` : ""}
+      </li>
+    `;
+  }).join("");
+
+  return `<ul class="sk-actions">${rows}</ul>`;
 }
 
 // ===== Modals =====
 window.__softko_closeModal = function () {
   const modal = document.getElementById("rejectionModal") || document.getElementById("successModal");
   if (modal) modal.remove();
+};
+
+window.__softko_backToEdit = function (firstFailKey) {
+  window.__softko_closeModal();
+  if (firstFailKey) scrollToAndFocus(firstFailKey);
 };
 
 function showRejectionModalDetailed(failedDetails, gate) {
@@ -447,58 +533,171 @@ function showRejectionModalDetailed(failedDetails, gate) {
     nextDate.setDate(today.getDate() + 7);
   }
 
-  const listHTML = (failedDetails || [])
-    .map(
-      (x) => `
-      <div style="margin-bottom:10px;">
-        <div style="font-weight:800;color:#991B1B;">• ${x.name}</div>
-        <div style="color:#7F1D1D;font-weight:600;">Lý do: ${x.reason}</div>
-        ${x.recommendation ? `<div style="color:#374151;margin-top:6px;"><b>Gợi ý:</b><br>${x.recommendation}</div>` : ""}
+  // Decide first fail key to focus
+  const firstFailKey = failedDetails?.[0]?.key || null;
+
+  // Build cards
+  const cardsHtml = (failedDetails || []).map((x) => {
+    const cfg = inputs[x.key];
+    const val = getInputValue(x.key);
+    const req = cfg ? getRequirementText(cfg) : "";
+    const ruleId = cfg?.ruleId || localKeyToRuleId(x.key) || "";
+    const actions = getRecommendationActions(ruleId);
+    const actionsHtml = renderActionsHtml(actions);
+
+    const hasActions = !!actionsHtml;
+    const actionToggleId = `sk_toggle_${x.key}`;
+    const actionBoxId = `sk_actions_${x.key}`;
+
+    return `
+      <div class="sk-card" data-key="${escapeHtml(x.key)}">
+        <div class="sk-card-top">
+          <div class="sk-badge">❌ FAIL</div>
+          <div class="sk-title">
+            <div class="sk-kpi">${escapeHtml(ruleId)}</div>
+            <div class="sk-name">${escapeHtml(x.name || "")}</div>
+          </div>
+        </div>
+
+        <div class="sk-grid">
+          <div class="sk-metric">
+            <div class="sk-label">Giá trị hiện tại</div>
+            <div class="sk-value">${escapeHtml(val || "—")}</div>
+          </div>
+          <div class="sk-metric">
+            <div class="sk-label">Yêu cầu</div>
+            <div class="sk-value sk-req">${escapeHtml(req || "—")}</div>
+          </div>
+          <div class="sk-metric">
+            <div class="sk-label">Lý do</div>
+            <div class="sk-value sk-reason">${escapeHtml(x.reason || "Chưa đạt")}</div>
+          </div>
+        </div>
+
+        <div class="sk-cta">
+          <button class="sk-btn sk-btn-outline" onclick="window.__softko_backToEdit('${escapeHtml(x.key)}')">
+            Sửa tiêu chí này
+          </button>
+
+          ${
+            hasActions
+              ? `<button id="${actionToggleId}" class="sk-btn sk-btn-primary" onclick="(function(){
+                    const box=document.getElementById('${actionBoxId}');
+                    const btn=document.getElementById('${actionToggleId}');
+                    if(!box||!btn) return;
+                    const open = box.getAttribute('data-open')==='1';
+                    box.setAttribute('data-open', open?'0':'1');
+                    box.style.display = open ? 'none' : 'block';
+                    btn.textContent = open ? 'Xem gợi ý chi tiết' : 'Ẩn gợi ý';
+                  })()">Xem gợi ý chi tiết</button>`
+              : `<div class="sk-no-rec">Chưa có gợi ý từ recommendation.js cho ${escapeHtml(ruleId)}.</div>`
+          }
+        </div>
+
+        ${
+          hasActions
+            ? `<div id="${actionBoxId}" class="sk-actions-wrap" style="display:none" data-open="0">
+                 <div class="sk-actions-head">✅ Gợi ý cải thiện (Recommendation)</div>
+                 ${actionsHtml}
+               </div>`
+            : ""
+        }
       </div>
-    `
-    )
-    .join("");
+    `;
+  }).join("");
+
+  const status = gate?.gate_status || getGateStatusEnum().SOFT_PENDING;
 
   const modalHTML = `
-    <div id="rejectionModal" style="
-      position: fixed; inset: 0; background: rgba(0,0,0,.6);
-      display:flex; align-items:center; justify-content:center; z-index:9999;">
-      <div style="background:#fff; border-radius:16px; padding:28px; max-width:560px; width:92%;
-        box-shadow:0 20px 60px rgba(0,0,0,.3);">
-        <div style="text-align:center; margin-bottom:16px;">
-          <div style="font-size:22px; font-weight:900; color:#DC2626; margin-bottom:6px;">Không đạt</div>
-          <div style="color:#6B7280; font-weight:700;">Bạn chưa đạt điều kiện Soft KO để qua gate.</div>
-        </div>
+    <div id="rejectionModal" class="sk-overlay">
+      <style>
+        .sk-overlay{position:fixed;inset:0;background:rgba(17,24,39,.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px;}
+        .sk-modal{width:min(880px,100%);background:#fff;border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,.35);overflow:hidden;border:1px solid #E5E7EB;}
+        .sk-head{padding:18px 22px;background:linear-gradient(135deg,#991B1B,#DC2626);color:#fff;}
+        .sk-head-top{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+        .sk-h-title{font-size:18px;font-weight:900;letter-spacing:.2px;}
+        .sk-pill{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.25);padding:6px 10px;border-radius:999px;font-weight:800;font-size:12px;}
+        .sk-sub{margin-top:6px;color:rgba(255,255,255,.92);font-weight:700;font-size:13px;}
+        .sk-meta{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px;}
+        .sk-metaBox{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);border-radius:12px;padding:10px 12px;}
+        .sk-metaBox .t{font-size:11px;font-weight:900;opacity:.9;}
+        .sk-metaBox .v{font-size:13px;font-weight:900;margin-top:2px;}
+        .sk-body{padding:18px 18px 6px;background:#F9FAFB;}
+        .sk-note{background:#FFF7ED;border:1px solid #FED7AA;border-left:5px solid #F59E0B;border-radius:14px;padding:12px 14px;color:#92400E;font-weight:800;margin-bottom:14px;}
+        .sk-cards{display:grid;grid-template-columns:1fr;gap:12px;}
+        .sk-card{background:#fff;border:1px solid #E5E7EB;border-radius:16px;padding:14px 14px 12px;box-shadow:0 8px 18px rgba(0,0,0,.06);}
+        .sk-card-top{display:flex;gap:10px;align-items:flex-start;}
+        .sk-badge{background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;padding:6px 10px;border-radius:999px;font-weight:900;font-size:12px;white-space:nowrap;}
+        .sk-title .sk-kpi{font-weight:900;color:#111827;font-size:12px;opacity:.75;}
+        .sk-title .sk-name{font-weight:900;color:#111827;font-size:15px;margin-top:2px;}
+        .sk-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px;}
+        .sk-metric{background:#F9FAFB;border:1px solid #E5E7EB;border-radius:12px;padding:10px;}
+        .sk-label{font-size:11px;font-weight:900;color:#6B7280;}
+        .sk-value{margin-top:4px;font-size:14px;font-weight:900;color:#111827;}
+        .sk-req{color:#B45309;}
+        .sk-reason{color:#991B1B;}
+        .sk-cta{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;}
+        .sk-btn{border:none;border-radius:12px;padding:10px 12px;font-weight:900;cursor:pointer;}
+        .sk-btn-outline{background:#fff;border:2px solid #EE4D2D;color:#EE4D2D;}
+        .sk-btn-outline:hover{filter:brightness(.98);}
+        .sk-btn-primary{background:#EE4D2D;color:#fff;}
+        .sk-btn-primary:hover{background:#D73211;}
+        .sk-no-rec{font-size:12px;color:#6B7280;font-weight:800;}
+        .sk-actions-wrap{margin-top:12px;background:#F0FDF4;border:1px solid #BBF7D0;border-left:5px solid #10B981;border-radius:14px;padding:12px;}
+        .sk-actions-head{font-size:12px;font-weight:900;color:#065F46;margin-bottom:8px;}
+        .sk-actions{margin:0;padding-left:18px;}
+        .sk-item{margin:8px 0;color:#065F46;font-weight:800;font-size:13px;}
+        .sk-act-title{font-weight:900;color:#064E3B;}
+        .sk-act-desc{margin-top:3px;color:#065F46;font-weight:700;font-size:12px;}
+        .sk-steps{margin:6px 0 0;padding-left:18px;color:#065F46;font-weight:700;font-size:12px;}
+        .sk-foot{display:flex;gap:12px;justify-content:flex-end;align-items:center;padding:14px 18px;background:#fff;border-top:1px solid #E5E7EB;}
+        .sk-foot .sk-btn{padding:11px 14px;}
+        .sk-btn-gray{background:#6B7280;color:#fff;}
+        .sk-btn-gray:hover{background:#4B5563;}
+        .sk-btn-orange{background:#EE4D2D;color:#fff;}
+        .sk-btn-orange:hover{background:#D73211;}
+        @media (max-width: 860px){
+          .sk-grid{grid-template-columns:1fr;}
+          .sk-meta{grid-template-columns:1fr;}
+          .sk-foot{flex-direction:column-reverse;align-items:stretch;}
+        }
+        /* pulse highlight */
+        .__softko_pulse{outline:3px solid rgba(238,77,45,.35); box-shadow:0 0 0 8px rgba(238,77,45,.12); border-color:#EE4D2D !important;}
+      </style>
 
-        <div style="background:#F9FAFB;border-radius:12px;padding:16px;margin-bottom:16px;">
-          <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:12px;">
-            <div style="flex:1; min-width:200px;">
-              <div style="font-size:12px;color:#6B7280;font-weight:800;">📅 Ngày kiểm tra</div>
-              <div style="font-size:14px;font-weight:900;">${formatDate(today)}</div>
+      <div class="sk-modal">
+        <div class="sk-head">
+          <div class="sk-head-top">
+            <div class="sk-h-title">⚠️ Soft KO chưa đạt — cần cải thiện</div>
+            <div class="sk-pill">Gate: ${escapeHtml(status)}</div>
+          </div>
+          <div class="sk-sub">Bạn có thể sửa ngay trên trang này. Hệ thống sẽ gợi ý hành động để đạt chuẩn.</div>
+
+          <div class="sk-meta">
+            <div class="sk-metaBox">
+              <div class="t">📅 Ngày kiểm tra</div>
+              <div class="v">${formatDate(today)}</div>
             </div>
-            <div style="flex:1; min-width:200px;">
-              <div style="font-size:12px;color:#6B7280;font-weight:800;">🔄 Ngày xét điểm tiếp theo</div>
-              <div style="font-size:14px;font-weight:900;color:#EE4D2D;">${formatDate(nextDate)}</div>
+            <div class="sk-metaBox">
+              <div class="t">🔄 Ngày xét điểm tiếp theo</div>
+              <div class="v">${formatDate(nextDate)}</div>
             </div>
           </div>
+        </div>
 
-          <div>
-            <div style="font-size:12px;color:#6B7280;font-weight:800;margin-bottom:8px;">❌ Không đạt / Lý do</div>
-            <div style="background:#FEE2E2;border-left:4px solid #DC2626;padding:12px;border-radius:10px;">
-              ${listHTML || "<div style='font-weight:800;color:#991B1B;'>Bạn chưa đạt một hoặc nhiều tiêu chí.</div>"}
-            </div>
+        <div class="sk-body">
+          <div class="sk-note">
+            Tip: Nhấn “Sửa tiêu chí này” để tự động cuộn tới ô nhập và focus.
+          </div>
+
+          <div class="sk-cards">
+            ${cardsHtml || "<div class='sk-card'><b>Không đạt một hoặc nhiều tiêu chí.</b></div>"}
           </div>
         </div>
 
-        <div style="display:flex; gap:12px;">
-          <button onclick="window.__softko_closeModal()" style="
-            flex:1; padding:12px 16px; border-radius:10px; border:none;
-            background:#6B7280; color:#fff; font-weight:900; cursor:pointer;">
-            Đóng
-          </button>
-          <button onclick="window.__softko_closeModal(); window.history.back();" style="
-            flex:1; padding:12px 16px; border-radius:10px; border:none;
-            background:#EE4D2D; color:#fff; font-weight:900; cursor:pointer;">
+        <div class="sk-foot">
+          <button class="sk-btn sk-btn-gray" onclick="window.__softko_closeModal()">Đóng</button>
+          <button class="sk-btn sk-btn-orange" onclick="window.__softko_backToEdit('${escapeHtml(firstFailKey || "")}')">
             Quay lại sửa
           </button>
         </div>
@@ -557,12 +756,10 @@ function showSuccessModalAndRedirect(url, seconds) {
 function getSoftRecommendation(localKey) {
   const cfg = inputs[localKey];
   if (!cfg) return "";
-  const sign = cfg.direction === "min" ? "≥" : "≤";
-  return `Cần đạt: ${sign} ${cfg.threshold}${cfg.unit}`;
+  return `Cần đạt: ${getRequirementText(cfg)}`;
 }
 
 function goNext() {
-  // validate all (sync UI + gate)
   Object.keys(inputs).forEach((k) => validateInput(k));
   updateProgress();
 
@@ -607,7 +804,6 @@ function goNext() {
   disableAllInputs();
   updateProgress();
 
-  // snapshot
   const data = {};
   Object.keys(inputs).forEach((k) => {
     const el = document.getElementById(inputs[k].id);
@@ -622,14 +818,16 @@ function goNext() {
   showSuccessModalAndRedirect("./KPI_SCORING.html", 10);
 }
 
-// HTML inline onclick uses goBack()
+// Back button in page header STILL goes to KO_GATE (đúng flow step 1->2)
+// Yêu cầu của bạn (2) áp dụng cho nút "Quay lại sửa" trong modal fail => đã sửa.
+// Nếu bạn muốn nút back-button ở trang cũng không về KO_GATE, nói mình chỉnh thêm.
 function goBack() {
-  // allow re-edit when going back
+  // (giữ nguyên như flow cũ)
   localStorage.removeItem(SOFT_GATE_LOCK_KEY);
   window.location.href = "KO_GATE.html";
 }
 
-// ===== Restore (optional) =====
+// ===== Restore =====
 function restoreSoftKOFromSession() {
   const raw = sessionStorage.getItem("softKoData");
   const data = raw ? safeParse(raw) : null;
@@ -649,13 +847,10 @@ function bootSoftKO() {
   inputs = buildInputs();
   initSoftGateIfMissing();
 
-  // reconcile lock before enabling/disabling
   reconcileLockWithGate();
-
   if (isLockedNow()) disableAllInputs();
   else enableAllInputs();
 
-  // bind inputs
   Object.keys(inputs).forEach((k) => {
     const el = document.getElementById(inputs[k].id);
     if (!el) return;
@@ -669,12 +864,10 @@ function bootSoftKO() {
     el.addEventListener("input", handler);
     el.addEventListener("blur", handler);
 
-    // initial paint
     if (String(el.value || "").trim() !== "") validateInput(k);
     else updateInputUI(k, null, null);
   });
 
-  // bind button
   const nextBtn = document.getElementById("nextBtn");
   if (nextBtn) {
     nextBtn.addEventListener("click", (e) => {
@@ -687,20 +880,18 @@ function bootSoftKO() {
   updateProgress();
 }
 
-// run even if DOMContentLoaded already fired
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", bootSoftKO);
 } else {
   bootSoftKO();
 }
 
-// export thresholds (used elsewhere if needed)
+// export thresholds
 window.MRSM_GATE_THRESHOLDS = (function () {
   const out = {};
   for (const ruleId of getSoftKoIds()) {
     const spec = getRuleSpec(ruleId);
     if (!spec) continue;
-
     out[ruleId] = {
       type: spec.type,
       direction: spec.direction,
