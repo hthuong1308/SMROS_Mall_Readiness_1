@@ -163,12 +163,14 @@
         }
 
         .sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
-            position: sticky;
-            top: 20px;
-            height: fit-content;
+           display: flex;
+    flex-direction: column;
+    gap: 20px;
+    height: auto !important;        /* Để chiều cao tự nhiên theo nội dung */
+    min-height: 100vh;              /* Ít nhất bằng màn hình */
+    position: relative !important;  /* Bỏ sticky để tránh lỗi hiển thị trên màn nhỏ */
+    overflow: visible !important;   /* Không được ẩn nội dung tràn */
+    max-height: none !important;    /* Quan trọng: Xóa giới hạn chiều cao cũ */
         }
 
         @media (max-width:1024px) {
@@ -1701,3 +1703,4 @@
 </body>
 
 </html>
+
