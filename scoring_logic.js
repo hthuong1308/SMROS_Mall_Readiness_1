@@ -569,7 +569,6 @@ function updateChecklistItem(ruleId) {
 }
 
 function updateProgress() {
-    // Count filled KPIs using strict checker (handles BR-02 / CAT-02 multi-fields)
     let count = 0;
     KPI_ORDER.forEach((id) => {
         if (isFilledStrict(id)) count++;
@@ -584,22 +583,20 @@ function updateProgress() {
         else t.textContent = `Thiếu ${KPI_ORDER.length - count} KPI`;
     }
 
-    // Result button: always enabled (validation happens on click)
+    // Button "Xem kết quả" luôn cho phép click (validateAll sẽ chặn nếu thiếu)
     const btn = $("btnResult");
     if (btn) btn.disabled = false;
 
-    // Review section: only show when all KPIs completed
+    // Show review only when đủ 19 KPI
     const reviewSection = $("review-section");
     if (reviewSection) {
         const shouldShow = count === KPI_ORDER.length;
         reviewSection.style.display = shouldShow ? "block" : "none";
         if (shouldShow) updateReviewStep();
-        else {
-            const content = $("review-content");
-            if (content) content.innerHTML = "";
-        }
+        else $("review-content") && ($("review-content").innerHTML = "");
     }
 }
+
 
 
 /* =========================
@@ -647,30 +644,21 @@ function getDisplayValue(ruleId) {
 
 function updateReviewStep() {
     const section = $("review-section");
-    const content = $("review-content"); // ✅ match KPI_SCORING.html
+    const content = $("review-content");
     if (!content) return;
 
-    // ✅ Only render when review is actually visible (computed style),
-    // and ONLY when đủ 19/19 KPI (tránh render sớm do CSS display:none)
+    // Only render when review is visible AND đủ 19/19
     const isVisible = !!section && window.getComputedStyle(section).display !== "none";
-    if (!isVisible) {
-        content.innerHTML = "";
-        return;
-    }
+    if (!isVisible) { content.innerHTML = ""; return; }
 
     const allDone = KPI_ORDER.every((id) => isFilledStrict(id));
-    if (!allDone) {
-        content.innerHTML = "";
-        return;
-    }
-
-    const values = collectDraft();
+    if (!allDone) { content.innerHTML = ""; return; }
 
     const groups = [
-        { key: "Vận hành", title: "Nhóm Vận hành", cls: "review-card--blue" },
-        { key: "Thương hiệu", title: "Nhóm Thương hiệu", cls: "review-card--purple" },
-        { key: "Danh mục", title: "Nhóm Danh mục", cls: "review-card--emerald" },
-        { key: "Quy mô", title: "Nhóm Quy mô", cls: "review-card--amber" },
+        { key: "Vận hành", title: "Nhóm Vận hành", cls: "review-card--blue", icon: "⚙️" },
+        { key: "Thương hiệu", title: "Nhóm Thương hiệu", cls: "review-card--purple", icon: "💎" },
+        { key: "Danh mục", title: "Nhóm Danh mục", cls: "review-card--emerald", icon: "🧾" },
+        { key: "Quy mô", title: "Nhóm Quy mô", cls: "review-card--amber", icon: "📈" },
     ];
 
     const byGroup = {};
@@ -678,12 +666,11 @@ function updateReviewStep() {
 
     KPI_ORDER.forEach((ruleId) => {
         const rule = KPI_RULES[ruleId];
-        const raw = values[ruleId];
-
-        const filled = isFilledStrict(ruleId, raw);
-        const displayValue = formatValue(ruleId, raw);
-
         const g = groupOfKpi(ruleId);
+
+        const filled = isFilledStrict(ruleId);
+        const displayValue = getDisplayValue(ruleId);
+
         (byGroup[g] || (byGroup[g] = [])).push({
             ruleId,
             name: rule?.name || ruleId,
@@ -692,43 +679,45 @@ function updateReviewStep() {
         });
     });
 
-    content.innerHTML = groups
-        .map((g) => {
-            const items = byGroup[g.key] || [];
-            const okCount = items.filter((x) => x.filled).length;
-            const total = items.length;
+    const gridHtml = groups.map((g) => {
+        const items = byGroup[g.key] || [];
+        const total = items.length;
 
-            const rows = items
-                .map((x) => {
-                    const missingCls = x.filled ? "" : " review-row--missing";
-                    const valueText = x.filled ? x.displayValue : "—";
-                    return `
-            <div class="review-row${missingCls}">
-              <div class="review-kpi">
-                <span class="mono">${escapeHtml(x.ruleId)}</span>
-                <span class="muted">—</span>
-                <span>${escapeHtml(x.name)}</span>
-              </div>
-              <div class="review-value mono">${escapeHtml(valueText)}</div>
-            </div>
-          `;
-                })
-                .join("");
-
+        const rows = items.map((x) => {
+            const missingRowCls = x.filled ? "" : " review-row--missing";
+            const valueCls = x.filled ? "" : " missing";
+            const valueText = x.filled ? x.displayValue : "—";
             return `
-        <div class="review-card ${g.cls}">
-          <div class="review-card-header">
-            <div class="review-card-title">${g.title}</div>
-            <div class="review-card-meta">${okCount}/${total} KPI</div>
-          </div>
-          <div class="review-rows">
-            ${rows || `<div class="muted">Không có KPI.</div>`}
-          </div>
-        </div>
-      `;
-        })
-        .join("");
+                <div class="review-row${missingRowCls}">
+                    <div class="review-label">
+                        <span class="review-id">${escapeHtml(x.ruleId)}</span>
+                        <span class="review-name" title="${escapeHtml(x.name)}">${escapeHtml(x.name)}</span>
+                        <div class="review-dots"></div>
+                    </div>
+                    <div class="review-value${valueCls}">${escapeHtml(valueText)}</div>
+                </div>
+            `;
+        }).join("");
+
+        return `
+            <div class="review-card ${g.cls}">
+                <div class="review-card-head">
+                    <div class="review-head-left">
+                        <div class="review-card-icon">${g.icon}</div>
+                        <div class="review-card-title">${escapeHtml(g.title)}</div>
+                    </div>
+                    <div class="review-card-meta">${total} KPI</div>
+                </div>
+                <div class="review-rows">
+                    ${rows}
+                </div>
+            </div>
+        `;
+    }).join("");
+
+    content.innerHTML = `<div class="review-grid">${gridHtml}</div>`;
 }
+
 
 
 /* =========================
