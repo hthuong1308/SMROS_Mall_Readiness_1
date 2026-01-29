@@ -603,96 +603,28 @@ function getDisplayValue(ruleId) {
     const v = String(raw).trim();
     return v ? v : "Chưa nhập";
 }
+
 function updateReviewStep() {
     const reviewDiv = $("review-content");
     if (!reviewDiv) return;
 
-    const groups = [
-        {
-            key: "ops",
-            icon: "⚙️",
-            title: "Nhóm Vận Hành",
-            cardClass: "review-card--blue",
-            match: (id) => id.startsWith("OP-") || id.startsWith("CS-") || id.startsWith("PEN-") || id.startsWith("CO-"),
-        },
-        {
-            key: "brand",
-            icon: "💎",
-            title: "Nhóm Thương Hiệu",
-            cardClass: "review-card--purple",
-            match: (id) => id.startsWith("BR-"),
-        },
-        {
-            key: "cat",
-            icon: "📂",
-            title: "Nhóm Danh Mục",
-            cardClass: "review-card--emerald",
-            match: (id) => id.startsWith("CAT-"),
-        },
-        {
-            key: "scale",
-            icon: "📈",
-            title: "Nhóm Quy Mô",
-            cardClass: "review-card--amber",
-            match: (id) => id.startsWith("SC-"),
-        },
-    ];
+    let html = `<div class="review-hint">Vui lòng kiểm tra lại số liệu trước khi bấm <b>Hoàn thành</b>.</div>`;
+    html += `<ul class="review-list">`;
 
-    const isMissingValue = (val) => {
-        const s = String(val ?? "");
-        return s === "Chưa nhập" || s.includes("Chưa nhập") || s.includes("Chưa chọn");
-    };
+    KPI_ORDER.forEach((id) => {
+        const name = KPI_RULES[id]?.name || id;
+        const val = getDisplayValue(id);
 
-    const groupItems = (g) => KPI_ORDER.filter((id) => g.match(id));
-
-    let html = `<div class="review-grid">`;
-
-    groups.forEach((g) => {
-        const items = groupItems(g);
-
-        // count missing within this group (for header badge)
-        let missingCount = 0;
-        items.forEach((id) => {
-            const val = getDisplayValue(id);
-            if (isMissingValue(val)) missingCount++;
-        });
-
+        const missing = (val === "Chưa nhập" || val.includes("Chưa nhập") || val.includes("Chưa chọn"));
         html += `
-      <div class="review-card ${escapeHtml(g.cardClass)}" data-group="${escapeHtml(g.key)}">
-        <div class="review-card-head">
-          <div class="review-head-left">
-            <div class="review-card-icon">${escapeHtml(g.icon)}</div>
-            <div class="review-card-title">${escapeHtml(g.title)}</div>
-          </div>
-          <div class="review-card-meta">${missingCount > 0 ? `${missingCount} thiếu` : `Đủ`}</div>
-        </div>
-        <div class="review-rows">
-    `;
-
-        items.forEach((id) => {
-            const name = KPI_RULES[id]?.name || id;
-            const val = getDisplayValue(id);
-            const missing = isMissingValue(val);
-
-            html += `
-        <div class="review-row ${missing ? "review-row--missing" : ""}">
-          <div class="review-label">
-            <span class="review-id">${escapeHtml(id)}</span>
-            <span class="review-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
-            <span class="review-dots" aria-hidden="true"></span>
-          </div>
-          <div class="review-value ${missing ? "missing" : ""}"><strong>${escapeHtml(val)}</strong></div>
-        </div>
-      `;
-        });
-
-        html += `
-        </div>
-      </div>
+      <li class="${missing ? "is-missing" : ""}">
+        <span class="review-label">${escapeHtml(id)} — ${escapeHtml(name)}</span>
+        <span class="review-value">${escapeHtml(val)}</span>
+      </li>
     `;
     });
 
-    html += `</div>`;
+    html += `</ul>`;
     reviewDiv.innerHTML = html;
 }
 
@@ -1059,7 +991,7 @@ function saveAndRedirect(resultObj) {
 
     // fallback cuối cùng
     if (!aid) {
-        aid = `A_${Date.now()}`;
+        aid = `LOCAL_${Date.now()}`;
     }
 
     // lưu lại cho chắc
@@ -1172,12 +1104,12 @@ document.addEventListener("DOMContentLoaded", () => {
     syncKpiCardsFromRules();
 
     // Load draft before checklist/progress
-    // loadDraft();
+    loadDraft();
 
 
 
     // Review: render ngay khi load lại draft
-    //updateReviewStep();
+    updateReviewStep();
 
     // Checklist
     renderChecklist();
