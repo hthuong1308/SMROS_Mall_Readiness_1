@@ -66,7 +66,7 @@ function getDraftKey() {
     try {
         const qid = (new URL(window.location.href).searchParams.get("assessment_id") || "").trim();
         if (qid) return "SMROS_DRAFT_" + qid;
-    } catch (_) {}
+    } catch (_) { }
 
     // Fallback
     return "SMROS_DRAFT_TEMP";
@@ -94,9 +94,9 @@ function resetDraft() {
     }
 
     // Dọn legacy keys (nếu còn)
-    try { localStorage.removeItem("SMROS_KPI_DRAFT_V1"); } catch (_) {}
-    try { localStorage.removeItem("SMROS_KPI_COMPLETED_V1"); } catch (_) {}
-    try { localStorage.removeItem(KPI_COMPLETED_KEY); } catch (_) {}
+    try { localStorage.removeItem("SMROS_KPI_DRAFT_V1"); } catch (_) { }
+    try { localStorage.removeItem("SMROS_KPI_COMPLETED_V1"); } catch (_) { }
+    try { localStorage.removeItem(KPI_COMPLETED_KEY); } catch (_) { }
 
     // Reload lại đúng URL hiện tại
     window.location.reload();
@@ -603,31 +603,67 @@ function getDisplayValue(ruleId) {
     const v = String(raw).trim();
     return v ? v : "Chưa nhập";
 }
-
 function updateReviewStep() {
     const reviewDiv = $("review-content");
     if (!reviewDiv) return;
 
-    let html = `<div class="review-hint">Vui lòng kiểm tra lại số liệu trước khi bấm <b>Hoàn thành</b>.</div>`;
-    html += `<ul class="review-list">`;
+    const groups = [
+        {
+            key: "ops",
+            icon: "⚙️",
+            title: "Vận hành & CS",
+            match: (id) =>
+                id.startsWith("OP-") || id.startsWith("CS-") || id.startsWith("PEN-") || id.startsWith("CO-"),
+        },
+        { key: "brand", icon: "🧩", title: "Thương hiệu", match: (id) => id.startsWith("BR-") },
+        { key: "cat", icon: "📂", title: "Danh mục", match: (id) => id.startsWith("CAT-") },
+        { key: "scale", icon: "📈", title: "Quy mô", match: (id) => id.startsWith("SC-") },
+    ];
 
-    KPI_ORDER.forEach((id) => {
-        const name = KPI_RULES[id]?.name || id;
-        const val = getDisplayValue(id);
+    const isMissingValue = (val) => {
+        const s = String(val ?? "");
+        return s === "Chưa nhập" || s.includes("Chưa nhập") || s.includes("Chưa chọn");
+    };
 
-        const missing = (val === "Chưa nhập" || val.includes("Chưa nhập") || val.includes("Chưa chọn"));
+    let html = `<div class="review-grid">`;
+
+    groups.forEach((g) => {
+        const items = KPI_ORDER.filter((id) => g.match(id));
+
         html += `
-      <li class="${missing ? "is-missing" : ""}">
-        <span class="review-label">${escapeHtml(id)} — ${escapeHtml(name)}</span>
-        <span class="review-value">${escapeHtml(val)}</span>
-      </li>
+      <div class="review-card" data-group="${escapeHtml(g.key)}">
+        <div class="review-card-head">
+          <div class="review-card-icon">${escapeHtml(g.icon)}</div>
+          <div class="review-card-title">${escapeHtml(g.title)}</div>
+        </div>
+        <div class="review-rows">
+    `;
+
+        items.forEach((id) => {
+            const name = KPI_RULES[id]?.name || id;
+            const val = getDisplayValue(id);
+            const missing = isMissingValue(val);
+
+            html += `
+        <div class="review-row ${missing ? "review-row--missing" : ""}">
+          <div class="review-label">
+            <span class="review-id">${escapeHtml(id)}</span>
+            <span class="review-name">${escapeHtml(name)}</span>
+          </div>
+          <div class="review-value"><strong>${escapeHtml(val)}</strong></div>
+        </div>
+      `;
+        });
+
+        html += `
+        </div>
+      </div>
     `;
     });
 
-    html += `</ul>`;
+    html += `</div>`;
     reviewDiv.innerHTML = html;
 }
-
 
 /* =========================
    UI Sync name + requirement text
@@ -1104,7 +1140,7 @@ document.addEventListener("DOMContentLoaded", () => {
     syncKpiCardsFromRules();
 
     // Load draft before checklist/progress
-    //loadDraft();
+   // loadDraft();
 
 
 
@@ -1119,4 +1155,3 @@ document.addEventListener("DOMContentLoaded", () => {
     // Bind events
     bindEvents();
 });
-
