@@ -57,10 +57,40 @@ function $(id) { return document.getElementById(id); }
 const KPI_DRAFT_KEY = "SMROS_KPI_DRAFT_V1";
 const KPI_COMPLETED_KEY = "SMROS_KPI_COMPLETED_V1";
 
+function getDraftKey() {
+    // Priority 1: sessionStorage
+    const sid = (sessionStorage.getItem("current_assessment_id") || "").trim();
+    if (sid) return "SMROS_DRAFT_" + sid;
+
+    // Priority 2: URL param
+    try {
+        const qid = (new URL(window.location.href).searchParams.get("assessment_id") || "").trim();
+        if (qid) return "SMROS_DRAFT_" + qid;
+    } catch (_) { }
+
+    // Fallback
+    return "SMROS_DRAFT_TEMP";
+}
+
+function getCompletedKey() {
+    const dk = getDraftKey();
+    if (dk === "SMROS_DRAFT_TEMP") return KPI_COMPLETED_KEY; // safe fallback
+    return "SMROS_KPI_COMPLETED_" + dk.replace("SMROS_DRAFT_", "");
+}
+
 function safeJsonParse(s) { try { return JSON.parse(s); } catch { return null; } }
 
 function getDraft() {
-    return safeJsonParse(localStorage.getItem(KPI_DRAFT_KEY) || "");
+    const key = getDraftKey();
+    if (key === "SMROS_DRAFT_TEMP") return null;
+
+    // Migrate legacy draft to dynamic key (one-time best effort)
+    if (!localStorage.getItem(key)) {
+        const legacy = localStorage.getItem(KPI_DRAFT_KEY);
+        if (legacy) localStorage.setItem(key, legacy);
+    }
+
+    return safeJsonParse(localStorage.getItem(key) || "");
 }
 
 function getDraftCat02Names() {
@@ -133,12 +163,14 @@ function computeCompletionFromDom() {
 }
 
 function saveDraftNow() {
+    const key = getDraftKey();
+    if (key === "SMROS_DRAFT_TEMP") return; // never persist without an assessment_id
+
     const payload = { savedAt: new Date().toISOString(), data: collectDraft() };
-    localStorage.setItem(KPI_DRAFT_KEY, JSON.stringify(payload));
+    localStorage.setItem(key, JSON.stringify(payload));
 
     const { completed } = computeCompletionFromDom();
-    localStorage.setItem(KPI_COMPLETED_KEY, completed ? "1" : "0");
-
+    localStorage.setItem(getCompletedKey(), completed ? "1" : "0");
 
     // Review: cập nhật bảng tóm tắt theo realtime
     updateReviewStep();
@@ -181,7 +213,20 @@ function applyDraft(payload) {
 }
 
 function loadDraft() {
-    const raw = localStorage.getItem(KPI_DRAFT_KEY);
+    const key = getDraftKey();
+    if (key === "SMROS_DRAFT_TEMP") return false; // don't autofill when missing assessment_id
+
+    let raw = localStorage.getItem(key);
+
+    // Migrate legacy draft to dynamic key if needed
+    if (!raw) {
+        const legacy = localStorage.getItem(KPI_DRAFT_KEY);
+        if (legacy) {
+            localStorage.setItem(key, legacy);
+            raw = legacy;
+        }
+    }
+
     if (!raw) return false;
     const payload = safeJsonParse(raw);
     if (!payload) return false;
@@ -486,6 +531,11 @@ function updateProgress() {
     // OPT #2: never disable button
     const btn = $("btnResult");
     if (btn) btn.disabled = false;
+
+
+    // Review section visible only when 19/19 complete
+    const review = document.getElementById("review-section");
+    if (review) review.style.display = (count === 19 ? "block" : "none");
 }
 
 
@@ -1040,7 +1090,4 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Bind events
     bindEvents();
-
-    // Sync completed flag
-    saveDraftDebounced(0);
 });
