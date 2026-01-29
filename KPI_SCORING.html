@@ -734,34 +734,66 @@
             color: var(--shopee);
             font-weight: 800;
         }
-    
+
         /* =========================
            UI Fix Overrides (2026-01-29)
            ========================= */
-        .assessment-content{
-            max-width:1140px;
-            margin:0 auto;
-            grid-template-columns:260px 1fr;
-            padding:30px 20px;
+        /* CHỈ áp dụng layout 2 cột cho màn hình to (Desktop) */
+        @media (min-width: 1025px) {
+            .assessment-content {
+                max-width: 1140px;
+                margin: 0 auto;
+                grid-template-columns: 260px 1fr;
+                /* Sidebar 260px */
+                padding: 30px 20px;
+            }
         }
-        .kpi-input, .kpi-select{
-            height:40px;
-            padding:6px 12px;
-            font-size:14px;
-            border-radius:6px;
+
+        /* Đảm bảo Mobile vẫn hiển thị 1 cột (An toàn tuyệt đối) */
+        @media (max-width: 1024px) {
+            .assessment-content {
+                grid-template-columns: 1fr;
+                padding: 20px;
+            }
         }
-        .suffix{
-            font-size:13px;
-            right:12px;
+
+        /* Tối ưu UX: Sidebar sticky nhưng có thể cuộn nếu nội dung dài */
+        .sidebar {
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            scrollbar-width: thin;
         }
-        #review-section{
-            display:none;
-            margin-top:24px;
+
+        .kpi-input,
+        .kpi-select {
+            height: 40px;
+            padding: 6px 12px;
+            font-size: 14px;
+            border-radius: 6px;
         }
-        .kpi-card{
-            padding:20px;
+
+        .suffix {
+            font-size: 13px;
+            right: 12px;
         }
-</style>
+
+        #review-section {
+            display: none;
+            margin-top: 24px;
+        }
+
+        .kpi-card {
+            padding: 20px;
+        }
+
+        /* Nút "Nhập lại" nhỏ gọn trong sidebar */
+        #btnResetDraft {
+            width: 100%;
+            padding: 10px 12px;
+            font-size: 13px;
+            border-radius: 8px;
+        }
+    </style>
 </head>
 
 <body>
@@ -824,6 +856,8 @@
                     <span>Đã nhập: <strong id="progressCount">0</strong>/19</span>
                     <span id="progressText">Chưa hoàn tất</span>
                 </div>
+
+                <button id="btnResetDraft" class="btn ghost" type="button">Nhập lại</button>
             </div>
         </aside>
 
