@@ -611,13 +611,31 @@ function updateReviewStep() {
         {
             key: "ops",
             icon: "⚙️",
-            title: "Vận hành & CS",
-            match: (id) =>
-                id.startsWith("OP-") || id.startsWith("CS-") || id.startsWith("PEN-") || id.startsWith("CO-"),
+            title: "Nhóm Vận Hành",
+            cardClass: "review-card--blue",
+            match: (id) => id.startsWith("OP-") || id.startsWith("CS-") || id.startsWith("PEN-") || id.startsWith("CO-"),
         },
-        { key: "brand", icon: "🧩", title: "Thương hiệu", match: (id) => id.startsWith("BR-") },
-        { key: "cat", icon: "📂", title: "Danh mục", match: (id) => id.startsWith("CAT-") },
-        { key: "scale", icon: "📈", title: "Quy mô", match: (id) => id.startsWith("SC-") },
+        {
+            key: "brand",
+            icon: "💎",
+            title: "Nhóm Thương Hiệu",
+            cardClass: "review-card--purple",
+            match: (id) => id.startsWith("BR-"),
+        },
+        {
+            key: "cat",
+            icon: "📂",
+            title: "Nhóm Danh Mục",
+            cardClass: "review-card--emerald",
+            match: (id) => id.startsWith("CAT-"),
+        },
+        {
+            key: "scale",
+            icon: "📈",
+            title: "Nhóm Quy Mô",
+            cardClass: "review-card--amber",
+            match: (id) => id.startsWith("SC-"),
+        },
     ];
 
     const isMissingValue = (val) => {
@@ -625,16 +643,28 @@ function updateReviewStep() {
         return s === "Chưa nhập" || s.includes("Chưa nhập") || s.includes("Chưa chọn");
     };
 
+    const groupItems = (g) => KPI_ORDER.filter((id) => g.match(id));
+
     let html = `<div class="review-grid">`;
 
     groups.forEach((g) => {
-        const items = KPI_ORDER.filter((id) => g.match(id));
+        const items = groupItems(g);
+
+        // count missing within this group (for header badge)
+        let missingCount = 0;
+        items.forEach((id) => {
+            const val = getDisplayValue(id);
+            if (isMissingValue(val)) missingCount++;
+        });
 
         html += `
-      <div class="review-card" data-group="${escapeHtml(g.key)}">
+      <div class="review-card ${escapeHtml(g.cardClass)}" data-group="${escapeHtml(g.key)}">
         <div class="review-card-head">
-          <div class="review-card-icon">${escapeHtml(g.icon)}</div>
-          <div class="review-card-title">${escapeHtml(g.title)}</div>
+          <div class="review-head-left">
+            <div class="review-card-icon">${escapeHtml(g.icon)}</div>
+            <div class="review-card-title">${escapeHtml(g.title)}</div>
+          </div>
+          <div class="review-card-meta">${missingCount > 0 ? `${missingCount} thiếu` : `Đủ`}</div>
         </div>
         <div class="review-rows">
     `;
@@ -648,9 +678,10 @@ function updateReviewStep() {
         <div class="review-row ${missing ? "review-row--missing" : ""}">
           <div class="review-label">
             <span class="review-id">${escapeHtml(id)}</span>
-            <span class="review-name">${escapeHtml(name)}</span>
+            <span class="review-name" title="${escapeHtml(name)}">${escapeHtml(name)}</span>
+            <span class="review-dots" aria-hidden="true"></span>
           </div>
-          <div class="review-value"><strong>${escapeHtml(val)}</strong></div>
+          <div class="review-value ${missing ? "missing" : ""}"><strong>${escapeHtml(val)}</strong></div>
         </div>
       `;
         });
@@ -664,6 +695,7 @@ function updateReviewStep() {
     html += `</div>`;
     reviewDiv.innerHTML = html;
 }
+
 
 /* =========================
    UI Sync name + requirement text
@@ -1140,7 +1172,7 @@ document.addEventListener("DOMContentLoaded", () => {
     syncKpiCardsFromRules();
 
     // Load draft before checklist/progress
-   // loadDraft();
+    // loadDraft();
 
 
 
