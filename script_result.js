@@ -995,16 +995,21 @@ function render(assess) {
 ============================================================ */
 async function load() {
   const assessmentId = getQueryParam("assessment_id");
+  const mode = getQueryParam("mode");
+  const isLocal =
+    mode === "local" ||
+    String(assessmentId || "").startsWith("LOCAL_") ||
+    window.location.protocol === "file:";
 
-  // ✅ Offline/local mode: không có assessment_id
-  if (!assessmentId) {
+  // ✅ Offline/local-first mode: không gọi API (GitHub Pages/static hosting không có /api)
+  if (!assessmentId || isLocal) {
     const raw = localStorage.getItem("assessment_result");
     const local = raw ? safeParseJson(raw) : null;
 
     if (local && !requireHardGateEvidenceOrRedirectLocal(local)) return;
 
     if (!local) {
-      renderEmpty("Thiếu assessment_id và không có assessment_result trong localStorage.");
+      renderEmpty("Thiếu assessment_id (hoặc local mode) và không có assessment_result trong localStorage.");
       return;
     }
 
