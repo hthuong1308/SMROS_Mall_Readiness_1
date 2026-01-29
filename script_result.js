@@ -1,19 +1,11 @@
-// ============================================================
-// Compat guard: some older builds call requireGateOrRedirect()
-// Avoid crash by providing a safe no-op that never blocks results.
-// ============================================================
-// Khai báo hàm $ (viết tắt document.getElementById)
 const $ = (id) => document.getElementById(id);
-
-// Hàm giả lập check Gate (luôn trả về true để không bị lỗi redirect)
-function requireGateOrRedirect() { return true; }
-
-// Sự kiện khi tải trang
 document.addEventListener('DOMContentLoaded', () => {
-  // Nếu có logic khởi tạo nào khác thì viết vào đây
-  console.log("Result page loaded.");
+  if (window.GateGuard) {
+    window.GateGuard.requireSoftGatePassOrRedirect({
+      redirectOnMissing: true,
+    });
+  }
 });
-
 let toastTimer = null;
 
 /* ============================================================
@@ -39,6 +31,7 @@ function showToast(type, title, message, ms = 2600) {
   if (toastTimer) clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toast.style.display = "none"), ms);
 }
+
 /* ============================================================
    ✅ Query param helper
    - Lấy giá trị query string từ URL hiện tại
@@ -362,19 +355,29 @@ function domainOf(ruleId) {
 function calcGroupsAndKpisFromLocal(local) {
   const breakdown = Array.isArray(local?.breakdown) ? local.breakdown : [];
 
-  const kpis = breakdown.map((k) => ({
+  
+const kpis = breakdown.map((k) => {
+  const metaSSOT = (window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function")
+    ? window.MRSM_CONFIG.getKpiMeta(k.id)
+    : null;
+
+  const fallbackName = metaSSOT?.name || k.id;
+  const fallbackWeight = (metaSSOT && metaSSOT.weight !== undefined) ? metaSSOT.weight : 0;
+
+  return {
     rule_id: k.id,
-    name: k.name,
+    name: k.name ?? fallbackName,
     group: groupOf(k.id),
     domain: domainOf(k.id),
     score: Number(k.score ?? 0),
-    weight_final: Number(k.weight ?? 0),
-
-    // NEW
+    // [SSOT] ưu tiên weight từ record, nếu thiếu thì lấy từ MRSM_CONFIG
+    weight_final: Number(k.weight ?? fallbackWeight),
     value: k.value ?? null,
-    meta: k.meta ?? null,
-    score_threshold: k.score_threshold ?? null,
-  }));
+    meta: k.meta ?? metaSSOT ?? null,
+    // Gate flag (optional)
+    is_gate: Boolean(k.is_gate ?? false),
+  };
+});
 
   const groups = {};
   ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
@@ -995,126 +998,60 @@ function render(assess) {
   if (assess.assessment_id) syncDashboardLinks(assess.assessment_id);
 }
 /* ============================================================
-   LOAD DATA (Local-first + Static-host safe)
-   - GitHub Pages / file:// : KHÔNG BAO GIỜ gọi /api/*
-   - Ưu tiên đọc:
-     (1) assessment_record_{assessmentId}
-     (2) assessment_record_local
-     (3) assessment_result_{assessmentId} hoặc assessment_result
+   ✅ LOAD DATA
+   - Nếu có assessment_id -> gọi API
+   - Nếu không có assessment_id -> đọc localStorage (assessment_result)
+   - Đồng thời lưu assessment_record_local để DASHBOARD đọc được khi mode=local
 ============================================================ */
 async function load() {
   const assessmentId = getQueryParam("assessment_id");
-  const mode = getQueryParam("mode");
 
-  const host = String(window.location.hostname || "").toLowerCase();
-  const isStaticHost =
-    window.location.protocol === "file:" ||
-    host.endsWith("github.io") ||
-    host.includes("pages.dev") ||
-    host.includes("vercel.app") ||
-    host.includes("netlify.app");
-
-  const isLocalMode =
-    mode === "local" ||
-    String(assessmentId || "").startsWith("LOCAL_") ||
-    window.location.protocol === "file:";
-
-  // Chỉ gọi API khi user cố tình bật ?use_api=1 và KHÔNG phải static host
-  const useApi = getQueryParam("use_api") === "1";
-  const shouldUseApi = !!assessmentId && !isLocalMode && !isStaticHost && useApi;
-
-  // ---------- Helper: render từ localStorage ----------
-  const renderFromLocal = () => {
-    // 1) Prefer per-assessment record (ổn định nhất)
-    let rec = null;
-    if (assessmentId) {
-      const recRaw = localStorage.getItem(`assessment_record_${assessmentId}`);
-      rec = recRaw ? safeParseJson(recRaw) : null;
-    }
-
-    // 2) Fallback: record local (lần gần nhất)
-    if (!rec) {
-      const recRaw2 = localStorage.getItem("assessment_record_local");
-      rec = recRaw2 ? safeParseJson(recRaw2) : null;
-    }
-
-    // Gate fail-closed (local mode): phải có hard evidence
-    if (rec && !requireHardGateEvidenceOrRedirectLocal(rec)) return;
-
-    if (rec && rec.assessment_id) {
-      render(rec);
-      return;
-    }
-
-    // 3) Fallback: adapt từ assessment_result (schema cũ)
-    const raw =
-      (assessmentId ? localStorage.getItem(`assessment_result_${assessmentId}`) : null) ||
-      localStorage.getItem("assessment_result");
+  // ✅ Offline/local mode: không có assessment_id
+  if (!assessmentId) {
+    const raw = localStorage.getItem("assessment_result");
     const local = raw ? safeParseJson(raw) : null;
 
     if (local && !requireHardGateEvidenceOrRedirectLocal(local)) return;
 
     if (!local) {
-      renderEmpty(
-        isStaticHost
-          ? "GitHub Pages không hỗ trợ /api. Không tìm thấy dữ liệu localStorage cho assessment này. Hãy chạy lại KO → KPI để tạo kết quả."
-          : "Không có dữ liệu localStorage cho assessment này. Hãy chạy lại KO → KPI để tạo kết quả."
-      );
+      renderEmpty("Thiếu assessment_id và không có assessment_result trong localStorage.");
       return;
     }
 
     const assess = adaptLocalAssessment(local);
 
-    // cache để DASHBOARD/RESULTS đọc lại được
-    try {
-      localStorage.setItem("assessment_record_local", JSON.stringify(assess));
-      if (assessmentId) localStorage.setItem(`assessment_record_${assessmentId}`, JSON.stringify(assess));
-    } catch (_) { }
+    // ✅ LƯU record để DASHBOARD đọc được khi offline/file://
+    localStorage.setItem("assessment_record_local", JSON.stringify(assess));
 
     render(assess);
-  };
-
-  // ---------- Local-first mặc định ----------
-  if (!shouldUseApi) {
-    renderFromLocal();
     return;
   }
 
-  // ---------- API mode (opt-in) ----------
+  // ✅ Online mode: có assessment_id -> gọi API
   try {
     const url = `/api/assessments/${encodeURIComponent(assessmentId)}`;
     const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
-
     if (!res.ok) {
-      // KHÔNG nhét nguyên HTML lỗi vào UI (tránh CSP warning + UI bể)
-      throw new Error(`API ${res.status}: không truy cập được endpoint /api trên host hiện tại.`);
+      const text = await res.text().catch(() => "");
+      throw new Error(`API ${res.status}: ${text || "Request failed"}`);
     }
 
-    const data = await res.json().catch(() => null);
+    const data = await res.json();
     if (!data || !data.assessment_id) {
-      throw new Error("API trả về dữ liệu không hợp lệ.");
+      renderEmpty("API trả về dữ liệu không hợp lệ.");
+      return;
     }
 
     render(data);
-
-    // cache lại để mở Dashboard local được
-    try {
-      localStorage.setItem(
-        "assessment_record_local",
-        JSON.stringify({
-          ...data,
-          evaluated_at: data.evaluated_at || data.evaluatedAt || new Date().toISOString(),
-        })
-      );
-      localStorage.setItem(`assessment_record_${data.assessment_id}`, JSON.stringify(data));
-    } catch (_) { }
+    localStorage.setItem("assessment_record_local", JSON.stringify({
+      ...data,
+      evaluated_at: data.evaluated_at || data.evaluatedAt || new Date().toISOString()
+    }));
   } catch (err) {
     console.error(err);
-    // Fallback về local thay vì trắng trang
-    renderFromLocal();
+    renderEmpty(err?.message || "Không thể gọi API.");
   }
 }
-
 
 /* ============================================================
    ✅ INIT (chỉ 1 lần)
