@@ -1,4 +1,5 @@
 /**
+ * ============================================================
  * SMRSS – MRSM KPI SCORING CORE LOGIC (WSM v2) — OPTIMIZED v1
  * ============================================================
  * Optimizations:
@@ -62,50 +63,50 @@ const KPI_COMPLETED_KEY = "SMROS_KPI_COMPLETED_V1";
    - Ưu tiên lấy assessment_id trên URL, fallback session/local
 ============================================================ */
 function getAssessmentIdFromUrl() {
-  try {
-    const u = new URL(window.location.href);
-    const id = u.searchParams.get("assessment_id");
-    if (id) return id;
-  } catch (_) {}
+    try {
+        const u = new URL(window.location.href);
+        const id = u.searchParams.get("assessment_id");
+        if (id) return id;
+    } catch (_) { }
 
-  // Fallbacks (best-effort)
-  const cand =
-    sessionStorage.getItem("current_assessment_id") ||
-    sessionStorage.getItem("assessment_id") ||
-    localStorage.getItem("current_assessment_id") ||
-    localStorage.getItem("assessment_id");
-  return cand || "";
+    // Fallbacks (best-effort)
+    const cand =
+        sessionStorage.getItem("current_assessment_id") ||
+        sessionStorage.getItem("assessment_id") ||
+        localStorage.getItem("current_assessment_id") ||
+        localStorage.getItem("assessment_id");
+    return cand || "";
 }
 
 function getDraftKey() {
-  // Scoped draft key: (uid + shopId + assessmentId) để tránh lẫn dữ liệu nhiều tài khoản/nhiều shop
-  const uid = window._auth?.currentUser?.uid || localStorage.getItem("smros_uid") || "anon";
+    // Scoped draft key: (uid + shopId + assessmentId) để tránh lẫn dữ liệu nhiều tài khoản/nhiều shop
+    const uid = window._auth?.currentUser?.uid || localStorage.getItem("smros_uid") || "anon";
 
-  let shopId = "unknown";
-  try {
-    const shop = JSON.parse(localStorage.getItem("shop_info") || "{}");
-    shopId = shop.shop_id || shop.shopId || shopId;
-  } catch (_) {}
+    let shopId = "unknown";
+    try {
+        const shop = JSON.parse(localStorage.getItem("shop_info") || "{}");
+        shopId = shop.shop_id || shop.shopId || shopId;
+    } catch (_) { }
 
-  const assessmentId = getAssessmentIdFromUrl() || "no_assessment";
-  return `${KPI_DRAFT_KEY}__${uid}__${shopId}__${assessmentId}`;
+    const assessmentId = getAssessmentIdFromUrl() || "no_assessment";
+    return `${KPI_DRAFT_KEY}__${uid}__${shopId}__${assessmentId}`;
 }
 
 function getCompletedKey() {
-  const uid = window._auth?.currentUser?.uid || localStorage.getItem("smros_uid") || "anon";
+    const uid = window._auth?.currentUser?.uid || localStorage.getItem("smros_uid") || "anon";
 
-  let shopId = "unknown";
-  try {
-    const shop = JSON.parse(localStorage.getItem("shop_info") || "{}");
-    shopId = shop.shop_id || shop.shopId || shopId;
-  } catch (_) {}
+    let shopId = "unknown";
+    try {
+        const shop = JSON.parse(localStorage.getItem("shop_info") || "{}");
+        shopId = shop.shop_id || shop.shopId || shopId;
+    } catch (_) { }
 
-  const assessmentId = getAssessmentIdFromUrl() || "no_assessment";
-  return `${KPI_COMPLETED_KEY}__${uid}__${shopId}__${assessmentId}`;
+    const assessmentId = getAssessmentIdFromUrl() || "no_assessment";
+    return `${KPI_COMPLETED_KEY}__${uid}__${shopId}__${assessmentId}`;
 }
 
 function isDraftScopedKey(key) {
-  return String(key || "").startsWith(KPI_DRAFT_KEY + "__");
+    return String(key || "").startsWith(KPI_DRAFT_KEY + "__");
 }
 
 function safeJsonParse(s) { try { return JSON.parse(s); } catch { return null; } }
@@ -569,25 +570,34 @@ function updateChecklistItem(ruleId) {
 
 function updateProgress() {
     let count = 0;
-    KPI_ORDER.forEach((id) => { if (isFilledStrict(id)) count++; });
+    KPI_ORDER.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (isFilledStrict(id, el.value)) count++;
+    });
 
     const c = $("progressCount");
     const t = $("progressText");
     if (c) c.textContent = String(count);
 
     if (t) {
-        if (count === 19) t.textContent = "Hoàn tất";
-        else t.textContent = `Thiếu ${19 - count} KPI`;
+        if (count === KPI_ORDER.length) t.textContent = "Hoàn tất";
+        else t.textContent = `Thiếu ${KPI_ORDER.length - count} KPI`;
     }
 
-    // OPT #2: never disable button
+    // never disable result button
     const btn = $("btnResult");
     if (btn) btn.disabled = false;
 
-
-    // Review section visible only when 19/19 complete
-    const review = document.getElementById("review-section");
-    if (review) review.style.display = (count === 19 ? "block" : "none");
+    // ✅ Review chỉ hiện khi đủ KPI
+    const reviewSection = $("review-section");
+    const reviewContent = $("review-content");
+    if (reviewSection) {
+        const shouldShow = count === KPI_ORDER.length;
+        reviewSection.style.display = shouldShow ? "block" : "none";
+        if (shouldShow) updateReviewStep();
+        else if (reviewContent) reviewContent.innerHTML = "";
+    }
 }
 
 
@@ -635,27 +645,81 @@ function getDisplayValue(ruleId) {
 }
 
 function updateReviewStep() {
-    const reviewDiv = $("review-content");
-    if (!reviewDiv) return;
+    const section = $("review-section");
+    const content = $("review-content"); // ✅ match KPI_SCORING.html
+    if (!content) return;
 
-    let html = `<div class="review-hint">Vui lòng kiểm tra lại số liệu trước khi bấm <b>Hoàn thành</b>.</div>`;
-    html += `<ul class="review-list">`;
+    // ✅ only render when review is visible (i.e., all KPIs completed)
+    const isVisible = section && section.style.display !== "none";
+    if (!isVisible) {
+        content.innerHTML = "";
+        return;
+    }
 
-    KPI_ORDER.forEach((id) => {
-        const name = KPI_RULES[id]?.name || id;
-        const val = getDisplayValue(id);
+    const values = collectDraft();
 
-        const missing = (val === "Chưa nhập" || val.includes("Chưa nhập") || val.includes("Chưa chọn"));
-        html += `
-      <li class="${missing ? "is-missing" : ""}">
-        <span class="review-label">${escapeHtml(id)} — ${escapeHtml(name)}</span>
-        <span class="review-value">${escapeHtml(val)}</span>
-      </li>
-    `;
+    const groups = [
+        { key: "Vận hành", title: "Nhóm Vận hành", cls: "blue" },
+        { key: "Thương hiệu", title: "Nhóm Thương hiệu", cls: "purple" },
+        { key: "Danh mục", title: "Nhóm Danh mục", cls: "emerald" },
+        { key: "Quy mô", title: "Nhóm Quy mô", cls: "amber" },
+    ];
+
+    const byGroup = {};
+    groups.forEach((g) => (byGroup[g.key] = []));
+
+    KPI_ORDER.forEach((ruleId) => {
+        const rule = KPI_RULES[ruleId];
+        const raw = values[ruleId];
+
+        const filled = isFilledStrict(ruleId, raw);
+        const displayValue = formatValue(ruleId, raw);
+
+        const g = groupOfKpi(ruleId);
+        (byGroup[g] || (byGroup[g] = [])).push({
+            ruleId,
+            name: rule?.name || ruleId,
+            filled,
+            displayValue,
+        });
     });
 
-    html += `</ul>`;
-    reviewDiv.innerHTML = html;
+    content.innerHTML = groups
+        .map((g) => {
+            const items = byGroup[g.key] || [];
+            const okCount = items.filter((x) => x.filled).length;
+            const total = items.length;
+
+            const rows = items
+                .map((x) => {
+                    const missingCls = x.filled ? "" : " review-row--missing";
+                    const valueText = x.filled ? x.displayValue : "—";
+                    return `
+            <div class="review-row${missingCls}">
+              <div class="review-kpi">
+                <span class="mono">${escapeHtml(x.ruleId)}</span>
+                <span class="muted">—</span>
+                <span>${escapeHtml(x.name)}</span>
+              </div>
+              <div class="review-value mono">${escapeHtml(valueText)}</div>
+            </div>
+          `;
+                })
+                .join("");
+
+            return `
+        <div class="review-card ${g.cls}">
+          <div class="review-card-header">
+            <div class="review-card-title">${g.title}</div>
+            <div class="review-card-meta">${okCount}/${total} KPI</div>
+          </div>
+          <div class="review-rows">
+            ${rows || `<div class="muted">Không có KPI.</div>`}
+          </div>
+        </div>
+      `;
+        })
+        .join("");
 }
 
 
@@ -1133,70 +1197,120 @@ function bindEvents() {
    - Optional manual restore via URL param: ?restore_draft=1
 ============================================================ */
 function forceBlankInputs() {
-  // Disable browser autofill as much as possible (best-effort).
-  document.querySelectorAll("input, select, textarea").forEach((el) => {
-    try { el.setAttribute("autocomplete", "off"); } catch (_) {}
-  });
+    // Disable browser autofill as much as possible (best-effort).
+    document.querySelectorAll("input, select, textarea").forEach((el) => {
+        try { el.setAttribute("autocomplete", "off"); } catch (_) { }
+    });
 
-  // Clear KPI numeric inputs
-  document.querySelectorAll(".kpi-input").forEach((el) => { try { el.value = ""; } catch (_) {} });
-  // Clear selects
-  document.querySelectorAll(".kpi-select").forEach((el) => { try { el.value = ""; } catch (_) {} });
+    // Clear KPI numeric inputs
+    document.querySelectorAll(".kpi-input").forEach((el) => { try { el.value = ""; } catch (_) { } });
+    // Clear selects
+    document.querySelectorAll(".kpi-select").forEach((el) => { try { el.value = ""; } catch (_) { } });
 
-  // Clear special fields (if present)
-  const extraIds = [
-    "BR-02_followers",
-    "BR-02_post",
-    "BR-02_postLink",
-    "BR-03_address",
-    "BR-01_url",
-    "CAT-02_white",
-    "CAT-02_life"
-  ];
-  extraIds.forEach((id) => {
-    const el = document.getElementById(id);
-    if (el) { try { el.value = ""; } catch (_) {} }
-  });
+    // Clear special fields (if present)
+    const extraIds = [
+        "BR-02_followers",
+        "BR-02_post",
+        "BR-02_postLink",
+        "BR-03_address",
+        "BR-01_url",
+        "CAT-02_white",
+        "CAT-02_life"
+    ];
+    extraIds.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) { try { el.value = ""; } catch (_) { } }
+    });
 
-  // Clear any status badges if UI has them
-  document.querySelectorAll(".status, .kpi-status, .badge-status").forEach((el) => {
-    try { el.textContent = ""; } catch (_) {}
-  });
+    // Clear any status badges if UI has them
+    document.querySelectorAll(".status, .kpi-status, .badge-status").forEach((el) => {
+        try { el.textContent = ""; } catch (_) { }
+    });
 
-  // Hide review section until completion
-  const review = document.getElementById("review-section");
-  if (review) review.style.display = "none";
+    // Hide review section until completion
+    const review = document.getElementById("review-section");
+    if (review) review.style.display = "none";
 }
 
 
+function injectRestoreDraftButton() {
+    const actions = document.querySelector(".kpi-actions");
+    const btnResult = $("btnResult");
+    if (!actions || !btnResult) return;
+
+    // already has button
+    if ($("btnRestoreDraft")) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const restoreDraft = params.get("restore_draft") === "1";
+    if (restoreDraft) return;
+
+    const draft = getDraft();
+    if (!draft) return;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.id = "btnRestoreDraft";
+    btn.className = "btn btn-secondary";
+    btn.textContent = "↩️ Khôi phục bản nháp";
+    btn.addEventListener("click", () => {
+        try {
+            loadDraft(); // will apply
+            KPI_ORDER.forEach(updateChecklistItem);
+            updateProgress();
+            showToast("success", "Đã khôi phục bản nháp", "Dữ liệu đã được điền lại từ draft (scoped theo user/shop/assessment).");
+        } catch (e) {
+            showToast("error", "Không thể khôi phục", e?.message || "Lỗi không xác định.");
+        }
+    });
+
+    actions.insertBefore(btn, btnResult);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
-  if (!requireHardGateOrRedirect()) return;
-  if (!requireSoftGatePassOrRedirect()) return;
+    if (!requireHardGateOrRedirect()) return;
+    if (!requireSoftGatePassOrRedirect()) return;
 
-  // Sync UI text from rules
-  syncKpiCardsFromRules();
+    // Sync UI text from rules
+    syncKpiCardsFromRules();
 
-  // Always clear first to defeat browser autofill / bfcache restore
-  forceBlankInputs();
+    const params = new URLSearchParams(window.location.search);
+    const restoreDraft = params.get("restore_draft") === "1";
 
-  // BLANK by default: do NOT rehydrate saved draft unless user explicitly requests it
-  const params = new URLSearchParams(window.location.search);
-  const restoreDraft = params.get("restore_draft") === "1";
+    // ✅ Default BLANK: clear any prefilled values (browser autofill / bfcache)
+    forceBlankInputs();
 
-  if (restoreDraft) {
-    loadDraft(); // will fill inputs from scoped draft key (uid+shop+assessment)
-  } else {
-    // Optional: clear any previous draft for this scope so opening page is always blank
-    try { localStorage.removeItem(getDraftKey()); } catch (_) {}
-    try { localStorage.removeItem(getCompletedKey()); } catch (_) {}
-  }
+    // Some browsers re-inject autofill *after* DOMContentLoaded -> clear a few more times
+    if (!restoreDraft) {
+        let tries = 0;
+        const wipeLateAutofill = () => {
+            tries++;
+            const anyFilled = KPI_ORDER.some((id) => {
+                const el = document.getElementById(id);
+                return el && String(el.value || "").trim() !== "";
+            });
+            if (anyFilled) forceBlankInputs();
+            if (tries < 5) setTimeout(wipeLateAutofill, 80);
+        };
+        setTimeout(wipeLateAutofill, 0);
+        window.addEventListener("pageshow", (e) => {
+            if (e && e.persisted) forceBlankInputs();
+        });
+    }
 
-  // Checklist
-  renderChecklist();
-  KPI_ORDER.forEach(updateChecklistItem);
-  updateProgress(); // review-section will auto show only when complete
+    // ✅ Only rehydrate when explicitly requested
+    if (restoreDraft) {
+        loadDraft();
+    }
 
-  // Bind events
-  bindEvents();
+    // Checklist
+    renderChecklist();
+    KPI_ORDER.forEach(updateChecklistItem);
+    updateProgress(); // review-section auto shows only when complete
+
+    // Bind events
+    bindEvents();
+
+    // If there is a saved draft (but not auto-filled), offer a restore button
+    injectRestoreDraftButton();
 });
-
