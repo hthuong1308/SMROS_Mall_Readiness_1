@@ -965,6 +965,7 @@ async function computeMRSM() {
 
         breakdown.push({
             id,
+            group: groupOfKpi(id),
             name: rule.name,
             method: rule.method,
             direction: rule.direction,
@@ -973,6 +974,7 @@ async function computeMRSM() {
             // For UI/criteria: separate scoring threshold (utility) from gate threshold (constraint)
             score_threshold: (rule.method === "RANGE") ? { direction: rule.direction, t1: rule.t1, t2: rule.t2 } : null,
             weight: rule.weight,
+            weight_final: rule.weight,
             value,
             score,
             weightedScore: round2(weighted),
@@ -1041,6 +1043,10 @@ function saveAndRedirect(resultObj) {
 
     const payload = {
         ...resultObj,
+        // ✅ Ensure Breakdown is present at top-level for RESULTS/DASHBOARD
+        breakdown: Array.isArray(resultObj?.breakdown)
+            ? resultObj.breakdown
+            : (Array.isArray(resultObj?.kpis) ? resultObj.kpis : []),
         computedAt: resultObj?.computedAt || new Date().toISOString(),
         version: resultObj?.version || "MRSM_WSM_v2",
 
@@ -1068,14 +1074,16 @@ function saveAndRedirect(resultObj) {
     localStorage.setItem("assessment_result", JSON.stringify(payload));
     // ✅ BUILD record schema for DASHBOARD (mode=local ưu tiên key này)
     const kpisNormalized = (payload.breakdown || []).map((k) => {
-        const id = k.id; // KPI id
+        const id = k.id || k.rule_id || k.kpiId; // KPI id (compat)
+        const wf = Number(k.weight_final ?? k.weight ?? 0);
         return {
             ...k,
+            id,
             rule_id: id,
             kpiId: id,
             group: k.group || groupOfKpi(id),
-            weight_final: (typeof k.weight === "number") ? k.weight : (k.weight_final ?? 0),
-            weight: (typeof k.weight === "number") ? k.weight : (k.weight_final ?? 0),
+            weight_final: wf,
+            weight: wf,
         };
     });
 
