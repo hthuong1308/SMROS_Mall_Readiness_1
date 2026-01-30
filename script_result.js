@@ -348,46 +348,54 @@ function domainOf(ruleId) {
 
 function calcGroupsAndKpisFromLocal(local) {
   // Ưu tiên schema mới: assessment_result.breakdown (scoring_logic.js)
-  let itemsRaw = Array.isArray(local?.breakdown) ? local.breakdown : [];
+  // Backward-compat: assessment_record_local.kpis hoặc các build cũ lưu local.kpis
+  const sourceKpis = Array.isArray(local?.kpis)
+    ? local.kpis
+    : (Array.isArray(local?.breakdown) ? local.breakdown : []);
 
-  // Backward-compat: một số build cũ lưu KPI list ở local.kpis
-  // hoặc lưu theo schema dashboard (assessment_record_local.kpis)
-  if (!itemsRaw.length && Array.isArray(local?.kpis)) {
-    itemsRaw = local.kpis
-      .map((k) => ({
-        id: k.id || k.rule_id || k.kpiId,
-        name: k.name,
-        score: k.score,
-        weight: (k.weight_final ?? k.weight),
+  const len = sourceKpis.length || 19;
+
+  const kpis = sourceKpis
+    .map((k) => {
+      const ruleId = k.id || k.rule_id || k.kpiId;
+      if (!ruleId) return null;
+
+      const metaSSOT =
+        window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function"
+          ? window.MRSM_CONFIG.getKpiMeta(ruleId)
+          : null;
+
+      const fallbackName = metaSSOT?.name || ruleId;
+
+      // weight priority:
+      // 1) record weight_final / weight
+      // 2) MRSM_CONFIG effective weight
+      // 3) Backup effective weight
+      // 4) Even split
+      const wfRecord = Number(k.weight_final ?? k.weight ?? 0);
+      const wfSSOT = getWeightEffectiveFromConfig(ruleId);
+      const wfBackup = getWeightEffectiveFromBackup(ruleId, len);
+      const wf = wfRecord > 0 ? wfRecord : (wfSSOT > 0 ? wfSSOT : (wfBackup > 0 ? wfBackup : (1 / len)));
+
+      return {
+        rule_id: ruleId,
+        name: k.name ?? fallbackName,
+        group: groupOf(ruleId),
+        domain: domainOf(ruleId),
+        score: Number(k.score ?? 0),
+        weight_final: wf,
         value: k.value ?? null,
-        meta: k.meta ?? null,
-        is_gate: k.is_gate ?? false,
-      }))
-      .filter((x) => !!x.id);
+        meta: k.meta ?? metaSSOT ?? null,
+        is_gate: Boolean(k.is_gate ?? false),
+      };
+    })
+    .filter(Boolean);
+
+  // ✅ Normalize weights to avoid "all 0" or inconsistent raw-sum (ImpactGap needs stable weights)
+  const sumW = kpis.reduce((s, it) => s + (it.weight_final || 0), 0);
+  if (sumW > 0) {
+    kpis.forEach((it) => (it.weight_final = (it.weight_final || 0) / sumW));
   }
-
-  const kpis = itemsRaw.map((k) => {
-    const metaSSOT = (window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function")
-      ? window.MRSM_CONFIG.getKpiMeta(k.id)
-      : null;
-
-    const fallbackName = metaSSOT?.name || k.id;
-    const fallbackWeight = getWeightEffectiveFromConfig(k.id);
-
-    return {
-      rule_id: k.id,
-      name: k.name ?? fallbackName,
-      group: groupOf(k.id),
-      domain: domainOf(k.id),
-      score: Number(k.score ?? 0),
-      // [SSOT] ưu tiên weight từ record, nếu thiếu thì lấy từ MRSM_CONFIG
-      weight_final: Number((k.weight ?? k.weight_final) ?? fallbackWeight),
-      value: k.value ?? null,
-      meta: k.meta ?? metaSSOT ?? null,
-      // Gate flag (optional)
-      is_gate: Boolean(k.is_gate ?? false),
-    };
-  });
 
   const groups = {};
   ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
@@ -442,6 +450,24 @@ function getWeightEffectiveFromConfig(ruleId) {
   const meta = getKpiMetaSSOT(ruleId);
   const wRaw = Number(meta?.weight || 0);
   return wRaw / getCfgWeightSum();
+}
+
+function getWeightEffectiveFromBackup(ruleId, fallbackLen) {
+  // Backup weights (same set as scoring_logic fallback) — used when MRSM_CONFIG isn't ready
+  const W = {
+    "OP-01": 0.08, "OP-02": 0.08, "OP-03": 0.05, "OP-04": 0.05,
+    "CS-01": 0.08, "CS-02": 0.04,
+    "PEN-01": 0.08,
+    "CO-01": 0.04, "CO-02": 0.05,
+    "BR-01": 0.05, "BR-02": 0.05, "BR-03": 0.05,
+    "CAT-01": 0.05, "CAT-02": 0.05, "CAT-03": 0.10, "CAT-04": 0.05,
+    "SC-01": 0.04, "SC-02": 0.04, "SC-03": 0.02,
+  };
+  const sum = Object.values(W).reduce((s, v) => s + Number(v || 0), 0) || 1;
+  const w = Number(W[String(ruleId || "").toUpperCase()] || 0);
+  if (w > 0) return w / sum;
+  const n = Number(fallbackLen || 19) || 19;
+  return 1 / n;
 }
 
 
