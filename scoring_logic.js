@@ -1136,6 +1136,8 @@ function saveAndRedirect(resultObj) {
     shop_name = shop_name || "—";
     shop_id = shop_id || "—";
     localStorage.setItem("shop_info", JSON.stringify({ shop_name, shop_id }));
+    // ✅ keep in-memory record consistent (avoid later overwrite)
+    try { assessmentRecordLocal.shop = { shop_name, shop_id }; } catch (_) { }
     // ✅ Update shop info inside assessment_record_local
     try {
         const raw = localStorage.getItem("assessment_record_local");
@@ -1167,16 +1169,16 @@ function saveAndRedirect(resultObj) {
 
     // ✅ SYNC: đảm bảo record local có đúng assessment_id & có key theo assessment_id
     try {
-      assessmentRecordLocal.assessment_id = aid;
-      // overwrite "latest/local"
-      localStorage.setItem("assessment_record_local", JSON.stringify(assessmentRecordLocal));
-      localStorage.setItem("assessment_record_latest", JSON.stringify(assessmentRecordLocal));
-      // store by id (RESULTS.html sẽ ưu tiên đọc key này)
-      localStorage.setItem(`assessment_record__${aid}`, JSON.stringify(assessmentRecordLocal));
-      // optional: store raw score result by id
-      localStorage.setItem(`assessment_result__${aid}`, JSON.stringify(resultPayload));
+        assessmentRecordLocal.assessment_id = aid;
+        // overwrite "latest/local"
+        localStorage.setItem("assessment_record_local", JSON.stringify(assessmentRecordLocal));
+        localStorage.setItem("assessment_record_latest", JSON.stringify(assessmentRecordLocal));
+        // store by id (RESULTS.html sẽ ưu tiên đọc key này)
+        localStorage.setItem(`assessment_record__${aid}`, JSON.stringify(assessmentRecordLocal));
+        // optional: store raw score result by id
+        localStorage.setItem(`assessment_result__${aid}`, JSON.stringify(payload));
     } catch (e) {
-      console.warn("SYNC local record failed:", e);
+        console.warn("SYNC local record failed:", e);
     }
 
     // redirect
