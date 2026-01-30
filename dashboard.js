@@ -305,8 +305,68 @@
     // Load + Adapt
     // ========================
     function loadData() {
+        const qs = new URL(window.location.href).searchParams;
+        const aid = (qs.get("assessment_id") || "").trim();
+
         const resultKey = window.MRSM_CONFIG?.ASSESSMENT_RESULT_KEY || "assessment_result";
-        const localRaw = localStorage.getItem(resultKey) || localStorage.getItem("assessmentData");
+
+        const tryGet = (key) => {
+            try {
+                const v = localStorage.getItem(key);
+                if (!v) return null;
+                const t = String(v).trim();
+                return t ? t : null;
+            } catch (_) {
+                return null;
+            }
+        };
+
+        // Prefer record-by-id if URL has assessment_id
+        let localRaw = null;
+
+        if (aid) {
+            const candidates = [
+                `assessment_record__${aid}`,
+                `assessment_record__${aid}__local`,
+                `assessment_record_local__${aid}`,
+                `assessment_record_${aid}`,
+                `assessment_${aid}`,
+            ];
+
+            for (const key of candidates) {
+                localRaw = tryGet(key);
+                if (localRaw) break;
+            }
+
+            // Fallback scan: in case key naming changed
+            if (!localRaw) {
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (!key) continue;
+                    if (!String(key).includes(aid)) continue;
+
+                    const looksLikeAssessment =
+                        key === resultKey ||
+                        key === "assessment_record_local" ||
+                        key.startsWith("assessment_record__") ||
+                        key.startsWith("assessment_record_local") ||
+                        key.startsWith("assessment_");
+
+                    if (!looksLikeAssessment) continue;
+
+                    const v = tryGet(key);
+                    if (v) {
+                        localRaw = v;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Fallback to latest local result
+        if (!localRaw) {
+            localRaw = tryGet(resultKey) || tryGet("assessmentData") || tryGet("assessment_record_local");
+        }
 
         // No result yet => show empty dashboard state (but still keep gate context)
         if (!localRaw) {
@@ -314,18 +374,26 @@
             return;
         }
 
-        let parsed = null;
-        try {
-            parsed = JSON.parse(localRaw);
-        } catch (err) {
-            console.error("[Dashboard] JSON parse error:", err);
+        const parsed = safeJsonParse(localRaw);
+        if (!parsed) {
+            console.error("[Dashboard] JSON parse error");
             showEmptyState();
             return;
         }
 
+        // ✅ Normalize schema via AnalysisEngine (if available)
+        const normalizedParsed = (window.AnalysisEngine && typeof window.AnalysisEngine.normalizeAssessmentPayload === 'function')
+            ? window.AnalysisEngine.normalizeAssessmentPayload(parsed)
+            : parsed;
+
+        // Mirror to canonical key so future loads succeed
+        try {
+            const existing = tryGet(resultKey);
+            if (!existing) localStorage.setItem(resultKey, JSON.stringify(normalizedParsed));
+        } catch (_) { }
+
         // Fail-closed: if in local mode without hard evidence anywhere => KO_GATE
-        const qs = new URL(window.location.href).searchParams;
-        const isLocalMode = qs.get("mode") === "local" || !qs.get("assessment_id");
+        const isLocalMode = qs.get("mode") === "local" || !aid;
 
         if (isLocalMode) {
             const hardRaw = sessionStorage.getItem(window.MRSM_CONFIG?.HARD_GATE_KEY || "validatedHardKO");
@@ -340,7 +408,7 @@
             }
         }
 
-        assessmentData = adaptLocalData(parsed);
+        assessmentData = adaptLocalData(normalizedParsed);
         renderDashboard();
     }
 
@@ -396,15 +464,18 @@
     }
 
     function adaptLocalData(local) {
-        const asmID = local.assessment_id || local.assessmentId || local.id || ("ASM-" + Date.now());
-        const category = local.category || local.loai || "Không rõ";
-        const assessedAt = local.assessed_at || local.timestamp || local.computedAt || new Date().toISOString();
+        // ✅ Ensure payload is normalized (kpis/group/weight_final) when AnalysisEngine is available
+        const _engine = (window.AnalysisEngine && typeof window.AnalysisEngine.normalizeAssessmentPayload === 'function') ? window.AnalysisEngine : null;
+        const _local = _engine ? _engine.normalizeAssessmentPayload(local) : local;
+        const asmID = _local.assessment_id || local.assessmentId || local.id || ("ASM-" + Date.now());
+        const category = _local.category || local.loai || "Không rõ";
+        const assessedAt = _local.assessed_at || local.timestamp || local.computedAt || new Date().toISOString();
 
-        const gateInfo = normalizeGateFromSnapshot(local);
+        const gateInfo = normalizeGateFromSnapshot(_local);
 
         // KPI items
         let kpis = [];
-        const bd = local.breakdown || local.kpis || local.results || local.mrsm?.breakdown || [];
+        const bd = _local.kpis || _local.breakdown || _local.results || _local.mrsm?.breakdown || [];
 
         for (const k of bd) {
             const value =
