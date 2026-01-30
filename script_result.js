@@ -72,6 +72,20 @@ function withAssessmentId(path, assessmentId) {
   return `${base}?mode=local`;
 }
 
+function appendQueryParam(url, key, value) {
+  try {
+    const u = new URL(url, window.location.origin);
+    u.searchParams.set(key, value);
+    // return relative (pathname + search) to keep existing behavior
+    return u.pathname + u.search;
+  } catch (_) {
+    // Fallback: naive append
+    const sep = url.includes("?") ? "&" : "?";
+    return url + sep + encodeURIComponent(key) + "=" + encodeURIComponent(String(value));
+  }
+}
+
+
 /* ============================================================
    ✅ Sync tất cả link/nút sang Dashboard
    - Đảm bảo click nút/anchor luôn điều hướng đúng
@@ -938,6 +952,7 @@ function render(assess) {
 
   // ✅ Link Dashboard: nếu offline/file:// -> tự sang mode=local
   const dashHref = withAssessmentId("./DASHBOARD.html", assess.assessment_id);
+  const kpiHref = appendQueryParam(withAssessmentId("./KPI_SCORING.html", assess.assessment_id), "restore_draft", "1");
 
   const main = $("mainRoot");
   if (!main) return;
@@ -1094,7 +1109,7 @@ function render(assess) {
 
     <div class="footer-actions">
       <div class="footer-right" style="margin-left:auto; display:flex; gap:10px; flex-wrap:wrap;">
-        <a class="btn light" href="./KPI_SCORING.html">🧮 Xem trang KPI</a>
+        <a class="btn light" href="${kpiHref}">🧮 Xem trang KPI</a>
         <a class="btn primary" id="footerDashboardLink" href="${dashHref}">📈 Xem Dashboard (mô tả dữ liệu)</a>
       </div>
     </div>
