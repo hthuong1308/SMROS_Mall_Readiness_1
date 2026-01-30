@@ -72,20 +72,6 @@ function withAssessmentId(path, assessmentId) {
   return `${base}?mode=local`;
 }
 
-function appendQueryParam(url, key, value) {
-  try {
-    const u = new URL(url, window.location.origin);
-    u.searchParams.set(key, value);
-    // return relative (pathname + search) to keep existing behavior
-    return u.pathname + u.search;
-  } catch (_) {
-    // Fallback: naive append
-    const sep = url.includes("?") ? "&" : "?";
-    return url + sep + encodeURIComponent(key) + "=" + encodeURIComponent(String(value));
-  }
-}
-
-
 /* ============================================================
    ✅ Sync tất cả link/nút sang Dashboard
    - Đảm bảo click nút/anchor luôn điều hướng đúng
@@ -361,14 +347,6 @@ function domainOf(ruleId) {
 }
 
 function calcGroupsAndKpisFromLocal(local) {
-  // ✅ Prefer AnalysisEngine (if loaded) to keep logic consistent across pages
-  if (window.AnalysisEngine && typeof window.AnalysisEngine.normalizeKpis === "function") {
-    const rawKpis = Array.isArray(local?.kpis) ? local.kpis : (Array.isArray(local?.breakdown) ? local.breakdown : []);
-    const kpis = window.AnalysisEngine.normalizeKpis(rawKpis, { mrsmConfig: window.MRSM_CONFIG, fallbackLen: 19 });
-    const groups = window.AnalysisEngine.computeBreakdown(kpis, { groupOrder: ["Operation", "Brand", "Category", "Scale"] });
-    return { kpis, groups };
-  }
-
   // Ưu tiên schema mới: assessment_result.breakdown (scoring_logic.js)
   // Backward-compat: assessment_record_local.kpis hoặc các build cũ lưu local.kpis
   const sourceKpis = Array.isArray(local?.kpis)
@@ -429,6 +407,7 @@ function calcGroupsAndKpisFromLocal(local) {
 
   return { kpis, groups };
 }
+
 function safeParseJson(s) {
   try {
     return JSON.parse(s);
@@ -554,28 +533,24 @@ function bestEffortShopInfo(local) {
 }
 
 function adaptLocalAssessment(local, forcedAssessmentId) {
-  const computedAt = local.computedAt || local.evaluated_at || local.evaluatedAt || new Date().toISOString();
+  const computedAt = local.computedAt || new Date().toISOString();
   const { kpis, groups } = calcGroupsAndKpisFromLocal(local);
   const shop = bestEffortShopInfo(local);
 
-  // Gate status có thể được tạo bởi KO pages; nếu thiếu thì default UNKNOWN (fail-closed sẽ force score=0 khi != PASS)
-  const localGateStatus =
-    local?.gate?.status || local?.gateStatus || local?.gate_status || local?.gate_state || "UNKNOWN";
+  // Gate status có thể được tạo bởi KO pages; nếu thiếu thì default PASS
+  const localGateStatus = local?.gate?.status || local?.gateStatus || local?.gate_status || local?.gate_state || "UNKNOWN";
 
   const localHardFailed = local?.gate?.hard?.failed_rules || local?.hard_failed_rules || local?.hardFailedRules || [];
+
   const localSoftItems = local?.gate?.soft?.items || local?.soft_items || local?.softItems || {};
-  const localSoftDeadline = local?.gate?.soft?.deadline_at || local?.soft_deadline_at || local?.softDeadlineAt || null;
 
-  const totalScore = Number(local.totalScore ?? local.total_score ?? 0);
+  const localSoftDeadline =
+    local?.gate?.soft?.deadline_at || local?.soft_deadline_at || local?.softDeadlineAt || null;
 
-  const aid =
-    forcedAssessmentId ||
-    local.assessment_id ||
-    local.assessmentId ||
-    ("LOCAL_" + String(computedAt).replace(/[:.]/g, ""));
+  const totalScore = Number(local.totalScore ?? 0);
 
   return {
-    assessment_id: aid,
+    assessment_id: "LOCAL_" + computedAt.replace(/[:.]/g, ""),
     evaluated_at: computedAt,
     shop,
 
@@ -596,59 +571,6 @@ function adaptLocalAssessment(local, forcedAssessmentId) {
     groups,
     kpis,
   };
-}
-
-/* ============================================================
-   ✅ Schema normalizer (fail-closed)
-   - Nếu object đã là "assessment record" (có mrsm.final_score) => dùng trực tiếp
-   - Nếu chỉ là "payload facts" (assessment_result: totalScore + breakdown/kpis) => adaptLocalAssessment()
-============================================================ */
-function ensureAssessmentRecord(obj, assessmentId) {
-  if (!obj || typeof obj !== "object") return null;
-
-  // Record schema (FireStore/local cached) — but still recompute groups/kpis to avoid schema mismatch
-  if (obj.mrsm && (obj.mrsm.final_score !== undefined || obj.mrsm.finalScore !== undefined)) {
-    const rec = { ...obj };
-
-    // Ensure assessment_id align for navigation
-    if (assessmentId && !(rec.assessment_id === assessmentId || rec.assessmentId === assessmentId)) {
-      rec.assessment_id = assessmentId;
-    }
-
-    // Normalize evaluated_at
-    rec.evaluated_at = rec.evaluated_at || rec.evaluatedAt || rec.computedAt || new Date().toISOString();
-
-    // Normalize shop
-    rec.shop = rec.shop || bestEffortShopInfo(rec);
-
-    // Normalize gate container
-    if (!rec.gate || typeof rec.gate !== "object") {
-      rec.gate = {
-        status: rec.gate_status || rec.gateStatus || "UNKNOWN",
-        hard: { failed_rules: [] },
-        soft: { items: {}, deadline_at: null },
-      };
-    }
-
-    // ✅ Recompute groups/kpis from rec.kpis/breakdown (standardize group + weight_final + impact inputs)
-    const rawLocal = {
-      kpis: Array.isArray(rec.kpis) ? rec.kpis : (Array.isArray(rec.breakdown) ? rec.breakdown : []),
-      breakdown: Array.isArray(rec.breakdown) ? rec.breakdown : null,
-    };
-    const { kpis, groups } = calcGroupsAndKpisFromLocal(rawLocal);
-    rec.kpis = kpis;
-    rec.groups = groups;
-
-    return rec;
-  }
-
-  // Payload facts schema
-  if (obj.totalScore !== undefined || Array.isArray(obj.breakdown) || Array.isArray(obj.kpis)) {
-    return adaptLocalAssessment(obj, assessmentId);
-  }
-
-  // Unknown schema => null (fail-closed)
-  return null;
 }
 
 /* ============================================================
@@ -952,7 +874,7 @@ function render(assess) {
 
   // ✅ Link Dashboard: nếu offline/file:// -> tự sang mode=local
   const dashHref = withAssessmentId("./DASHBOARD.html", assess.assessment_id);
-  const kpiHref = appendQueryParam(withAssessmentId("./KPI_SCORING.html", assess.assessment_id), "restore_draft", "1");
+  const kpiHref = withAssessmentId("./KPI_SCORING.html", assess.assessment_id) + "&restore_draft=1";
 
   const main = $("mainRoot");
   if (!main) return;
@@ -1174,6 +1096,7 @@ async function load() {
 
     // ✅ LƯU record để DASHBOARD đọc được khi offline/file://
     localStorage.setItem("assessment_record_local", JSON.stringify(assess));
+    try { localStorage.setItem(`assessment_record__${assess.assessment_id}`, JSON.stringify(assess)); } catch (_) { }
 
     render(assess);
     return;
@@ -1187,11 +1110,8 @@ async function load() {
     const cachedRaw = localStorage.getItem("assessment_record_local");
     const cached = cachedRaw ? safeParseJson(cachedRaw) : null;
     if (cached && (cached.assessment_id === assessmentId || cached.assessmentId === assessmentId)) {
-      const rec = ensureAssessmentRecord(cached, assessmentId);
-      if (rec) {
-        render(rec);
-        return;
-      }
+      render(cached);
+      return;
     }
 
     // 2) Heuristic scan: tìm trong localStorage object nào có assessment_id khớp
@@ -1209,12 +1129,9 @@ async function load() {
       }
     }
     if (found) {
-      const rec = ensureAssessmentRecord(found, assessmentId);
-      if (rec) {
-        localStorage.setItem("assessment_record_local", JSON.stringify(rec));
-        render(rec);
-        return;
-      }
+      localStorage.setItem("assessment_record_local", JSON.stringify(found));
+      render(found);
+      return;
     }
 
     // 3) Fallback: nếu có assessment_result (từ scoring_logic) thì adapt để render,
@@ -1225,6 +1142,7 @@ async function load() {
       if (!requireHardGateEvidenceOrRedirectLocal(local)) return;
       const assess = adaptLocalAssessment(local, assessmentId);
       localStorage.setItem("assessment_record_local", JSON.stringify(assess));
+      try { localStorage.setItem(`assessment_record__${assess.assessment_id}`, JSON.stringify(assess)); } catch (_) { }
       render(assess);
       return;
     }
