@@ -10,35 +10,25 @@
  */
 
 const BACKUP_KPI_RULES = {
-    // OPERATION (0.50)
     "OP-01": { name: "Tỷ lệ giao hàng trễ (LSR)", method: "RANGE", direction: "LE", t1: 8, t2: 12, weight: 0.08 },
     "OP-02": { name: "Tỷ lệ đơn hàng không thành công (NFR)", method: "RANGE", direction: "LE", t1: 8, t2: 12, weight: 0.08 },
     "OP-03": { name: "Tỷ lệ đánh giá tiêu cực (NRR)", method: "RANGE", direction: "LE", t1: 2, t2: 5, weight: 0.05 },
     "OP-04": { name: "Tỷ lệ giao hàng nhanh", method: "RANGE", direction: "GE", t1: 95, t2: 80, weight: 0.05 },
-
-    "CS-01": { name: "Tỷ lệ phản hồi Chat", method: "RANGE", direction: "GE", t1: 80, t2: 60, weight: 0.05 },
-    "CS-02": { name: "Thời gian phản hồi Chat (h)", method: "RANGE", direction: "LE", t1: 4, t2: 8, weight: 0.05 },
-
-    "PEN-01": { name: "Điểm phạt Sao Quả Tạ", method: "RANGE", direction: "LE", t1: 0, t2: 2, weight: 0.04 },
-
-    "CO-01": { name: "Tỷ lệ hàng đặt trước (%)", method: "RANGE", direction: "LE", t1: 5, t2: 10, weight: 0.05 },
-    "CO-02": { name: "Không vi phạm cộng đồng", method: "BINARY", direction: "BOOL", t1: null, t2: null, weight: 0.05 },
-
-    // BRAND (0.20)
-    "BR-01": { name: "Website ổn định (domain check)", method: "CUSTOM", direction: "URL_OK", t1: null, t2: null, weight: 0.08 },
-    "BR-02": { name: "Hiện diện MXH (followers + post link)", method: "CUSTOM", direction: "SOCIAL_2COND", t1: 5000, t2: null, weight: 0.08 },
-    "BR-03": { name: "Độ phủ Offline (địa chỉ cửa hàng)", method: "CUSTOM", direction: "NONEMPTY_TEXT", t1: null, t2: null, weight: 0.04 },
-
-    // CATEGORY (0.15)
-    "CAT-01": { name: "Số lượng sản phẩm hoạt động (SKU)", method: "RANGE", direction: "GE", t1: 50, t2: 5, weight: 0.0375 },
-    "CAT-02": { name: "Ảnh đạt chuẩn (white bg + lifestyle + không vi phạm)", method: "CUSTOM", direction: "IMG_2CHECK", t1: null, t2: null, weight: 0.0375 },
-    "CAT-03": { name: "Sản phẩm bị khóa/xóa", method: "BINARY", direction: "BOOL", t1: null, t2: null, weight: 0.0525 },
-    "CAT-04": { name: "Các vi phạm khác", method: "BINARY", direction: "BOOL", t1: null, t2: null, weight: 0.0225 },
-
-    // SCALE (0.15)
-    "SC-01": { name: "Doanh số 4w (Triệu VNĐ)", method: "RANGE", direction: "GE", t1: 50, t2: 30, weight: 0.075 },
-    "SC-02": { name: "Số đơn hàng 4w", method: "RANGE", direction: "GE", t1: 250, t2: 150, weight: 0.045 },
-    "SC-03": { name: "Tăng trưởng doanh số (%)", method: "RANGE", direction: "GE", t1: 5, t2: 0, weight: 0.03 },
+    "CS-01": { name: "Tỷ lệ phản hồi Chat", method: "RANGE", direction: "GE", t1: 80, t2: 60, weight: 0.08 },
+    "CS-02": { name: "Thời gian phản hồi Chat (h)", method: "RANGE", direction: "LE", t1: 4, t2: 8, weight: 0.04 },
+    "PEN-01": { name: "Điểm phạt Sao Quả Tạ", method: "RANGE", direction: "LE", t1: 2, t2: 2, weight: 0.08 },
+    "CO-01": { name: "Tỷ lệ hàng đặt trước (%)", method: "RANGE", direction: "LE", t1: 5, t2: 10, weight: 0.04 },
+    "CO-02": { name: "Không vi phạm cộng đồng", method: "BINARY", direction: "BOOL", weight: 0.05 },
+    "BR-01": { name: "Website ổn định (domain check)", method: "CUSTOM", direction: "CUSTOM", weight: 0.05 },
+    "BR-02": { name: "Hiện diện MXH (followers + post link)", method: "CUSTOM", direction: "CUSTOM", weight: 0.05 },
+    "BR-03": { name: "Độ phủ Offline (địa chỉ cửa hàng)", method: "CUSTOM", direction: "CUSTOM", weight: 0.05 },
+    "CAT-01": { name: "Số lượng sản phẩm hoạt động (SKU)", method: "RANGE", direction: "GE", t1: 50, t2: 5, weight: 0.05 },
+    "CAT-02": { name: "Ảnh đạt chuẩn (white bg + lifestyle)", method: "CUSTOM", direction: "CUSTOM", weight: 0.05 },
+    "CAT-03": { name: "Sản phẩm bị khóa/xóa", method: "BINARY", direction: "BOOL", weight: 0.1 },
+    "CAT-04": { name: "Các vi phạm khác", method: "BINARY", direction: "BOOL", weight: 0.05 },
+    "SC-01": { name: "Doanh số 4w (Triệu VNĐ)", method: "RANGE", direction: "GE", t1: 50, t2: 30, weight: 0.04 },
+    "SC-02": { name: "Số đơn hàng 4w", method: "RANGE", direction: "GE", t1: 250, t2: 150, weight: 0.04 },
+    "SC-03": { name: "Tăng trưởng doanh số (%)", method: "RANGE", direction: "GE", t1: 5, t2: 0, weight: 0.02 }
 };/* ============================================================
    SSOT: Build KPI_ORDER & KPI_RULES from MRSM_CONFIG (mrsm_config.js)
    - Nếu MRSM_CONFIG chưa load => fallback dùng BACKUP_* (fail-safe)
@@ -47,40 +37,87 @@ let KPI_ORDER = [];
 const KPI_RULES = {};
 
 (function initKpiRegistryFromSSOT() {
+    // Reset
+    KPI_ORDER.length = 0;
+    for (const k of Object.keys(KPI_RULES)) delete KPI_RULES[k];
+    KPI_WEIGHT_SUM = 0;
+
     try {
-        const list = window.MRSM_CONFIG && Array.isArray(window.MRSM_CONFIG.kpis) ? window.MRSM_CONFIG.kpis : null;
-        if (list && list.length) {
-            list.forEach((k) => {
-                if (!k || !k.id) return;
-                KPI_ORDER.push(k.id);
-                const method = (k.method === "BOOLEAN") ? "BINARY" : (k.method || "RANGE");
-                const direction = k.direction || ((method === "BINARY") ? "BOOL" : "GE");
-                KPI_RULES[k.id] = {
-                    name: k.name || k.id,
-                    method,
-                    direction,
-                    t1: (k.t1 !== undefined ? k.t1 : 0),
-                    t2: (k.t2 !== undefined ? k.t2 : 0),
-                    weight: (k.weight !== undefined ? k.weight : 0),
-                };
-            });
-            return;
-        }
+        const cfg = window.MRSM_CONFIG;
+        const list = cfg?.kpis;
+        if (!Array.isArray(list) || list.length === 0) throw new Error("MRSM_CONFIG.kpis missing/empty");
+
+        // Các KPI có logic chấm riêng (giữ đúng behaviour app hiện tại)
+        const specialCustomIds = new Set(["BR-01", "BR-02", "BR-03", "CAT-02"]);
+
+        list.forEach((k) => {
+            if (!k || !k.id) return;
+
+            let method = String(k.method || "RANGE").toUpperCase();
+            if (method === "BOOLEAN") method = "BINARY";
+            if (method === "COMPLEX") method = "CUSTOM";
+            if (specialCustomIds.has(k.id)) method = "CUSTOM";
+
+            const rule = {
+                name: k.name || k.id,
+                method: method,
+                direction: "GE",
+                t1: 0,
+                t2: 0,
+                // weight ở config là RAW weight; app sẽ tự normalize khi tính score
+                weight: Number(k.weight || 0),
+            };
+
+            if (method === "BINARY") {
+                rule.direction = "BOOL";
+            } else if (method === "CUSTOM") {
+                rule.direction = "CUSTOM";
+            } else {
+                rule.direction = (k.direction || "GE").toUpperCase();
+                rule.t1 = k.t1 !== undefined ? Number(k.t1) : 0;
+                rule.t2 = k.t2 !== undefined ? Number(k.t2) : 0;
+            }
+
+            KPI_RULES[k.id] = rule;
+            KPI_ORDER.push(k.id);
+            KPI_WEIGHT_SUM += Number(rule.weight || 0);
+        });
+
+        // Safety: nếu weight sum bị 0 thì fallback (tránh chia 0)
+        if (!(KPI_WEIGHT_SUM > 0)) KPI_WEIGHT_SUM = KPI_ORDER.length || 1;
+
+        console.log("[SSOT] KPI registry loaded from MRSM_CONFIG. kpis=", KPI_ORDER.length, "weightSum=", KPI_WEIGHT_SUM);
+        return;
     } catch (e) {
         console.warn("[SSOT] initKpiRegistryFromSSOT failed:", e);
     }
 
-    // Fallback
+    // Fallback (backup)
     KPI_ORDER = (Array.isArray(BACKUP_KPI_ORDER) ? BACKUP_KPI_ORDER.slice() : []);
     Object.assign(KPI_RULES, BACKUP_KPI_RULES || {});
+    KPI_WEIGHT_SUM = KPI_ORDER.reduce((s, id) => s + Number(KPI_RULES[id]?.weight || 0), 0) || (KPI_ORDER.length || 1);
 })();
 
 const BACKUP_KPI_ORDER = [
-    "OP-01", "OP-02", "OP-03", "OP-04", "CS-01", "CS-02", "PEN-01",
-    "BR-01", "BR-02", "BR-03",
-    "CAT-01", "CAT-02", "CAT-03", "CAT-04",
-    "SC-01", "SC-02", "SC-03",
-    "CO-01", "CO-02"
+    "OP-01",
+    "OP-02",
+    "OP-03",
+    "OP-04",
+    "CS-01",
+    "CS-02",
+    "PEN-01",
+    "CO-01",
+    "CO-02",
+    "BR-01",
+    "BR-02",
+    "BR-03",
+    "CAT-01",
+    "CAT-02",
+    "CAT-03",
+    "CAT-04",
+    "SC-01",
+    "SC-02",
+    "SC-03"
 ];
 
 function $(id) { return document.getElementById(id); }
