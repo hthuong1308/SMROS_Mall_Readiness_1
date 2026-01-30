@@ -347,62 +347,37 @@ function domainOf(ruleId) {
 }
 
 function calcGroupsAndKpisFromLocal(local) {
-  // Ưu tiên schema mới: assessment_result.breakdown (scoring_logic.js)
-  // Backward-compat: assessment_record_local.kpis hoặc các build cũ lưu local.kpis
+  // ✅ Fact source priority:
+  // 1) local.kpis (legacy assessment_record_local)
+  // 2) local.breakdown (assessment_result from scoring_logic.js)
   const sourceKpis = Array.isArray(local?.kpis)
     ? local.kpis
     : (Array.isArray(local?.breakdown) ? local.breakdown : []);
 
-  const len = sourceKpis.length || 19;
+  const fallbackLen = sourceKpis.length || 19;
 
-  const kpis = sourceKpis
-    .map((k) => {
-      const ruleId = k.id || k.rule_id || k.kpiId;
-      if (!ruleId) return null;
-
-      const metaSSOT =
-        window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function"
-          ? window.MRSM_CONFIG.getKpiMeta(ruleId)
-          : null;
-
-      const fallbackName = metaSSOT?.name || ruleId;
-
-      // weight priority:
-      // 1) record weight_final / weight
-      // 2) MRSM_CONFIG effective weight
-      // 3) Backup effective weight
-      // 4) Even split
-      const wfRecord = Number(k.weight_final ?? k.weight ?? 0);
-      const wfSSOT = getWeightEffectiveFromConfig(ruleId);
-      const wfBackup = getWeightEffectiveFromBackup(ruleId, len);
-      const wf = wfRecord > 0 ? wfRecord : (wfSSOT > 0 ? wfSSOT : (wfBackup > 0 ? wfBackup : (1 / len)));
-
-      return {
-        rule_id: ruleId,
-        name: k.name ?? fallbackName,
-        group: groupOf(ruleId),
-        domain: domainOf(ruleId),
-        score: Number(k.score ?? 0),
-        weight_final: wf,
-        value: k.value ?? null,
-        meta: k.meta ?? metaSSOT ?? null,
-        is_gate: Boolean(k.is_gate ?? false),
-      };
-    })
-    .filter(Boolean);
-
-  // ✅ Normalize weights to avoid "all 0" or inconsistent raw-sum (ImpactGap needs stable weights)
-  const sumW = kpis.reduce((s, it) => s + (it.weight_final || 0), 0);
-  if (sumW > 0) {
-    kpis.forEach((it) => (it.weight_final = (it.weight_final || 0) / sumW));
+  // ✅ Delegate inference to AnalysisEngine (DOM-free)
+  const engine = window.AnalysisEngine;
+  if (!engine || typeof engine.normalizeKpis !== "function" || typeof engine.computeBreakdown !== "function") {
+    // Fail-closed: keep UI alive but no inference
+    return {
+      kpis: [],
+      groups: {
+        Operation: { score: 0, contribution: 0 },
+        Brand: { score: 0, contribution: 0 },
+        Category: { score: 0, contribution: 0 },
+        Scale: { score: 0, contribution: 0 },
+      },
+    };
   }
 
-  const groups = {};
-  ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
-    const items = kpis.filter((x) => x.group === g);
-    const wsum = items.reduce((s, it) => s + (it.weight_final || 0), 0);
-    const contrib = items.reduce((s, it) => s + it.score * (it.weight_final || 0), 0);
-    groups[g] = { score: wsum > 0 ? contrib / wsum : 0, contribution: contrib };
+  const kpis = engine.normalizeKpis(sourceKpis, {
+    mrsmConfig: window.MRSM_CONFIG || null,
+    fallbackLen,
+  });
+
+  const groups = engine.computeBreakdown(kpis, {
+    mrsmConfig: window.MRSM_CONFIG || null,
   });
 
   return { kpis, groups };
@@ -415,6 +390,7 @@ function safeParseJson(s) {
     return null;
   }
 }
+
 
 /* ============================================================
    ✅ SSOT helpers (MRSM_CONFIG)
@@ -736,30 +712,25 @@ function render(assess) {
     fixItems = [...hard, ...soft].map((x) => ({ ...x, priority: "P0" }));
   } else {
     const kpis = Array.isArray(assess.kpis) ? assess.kpis : [];
-    fixItems = kpis
-      .map((k) => {
-        const score = Number(k.score ?? 0);
-        const w = Number(k.weight_final ?? 0);
-        const impact = (100 - score) * w;
-        return {
-          id: k.rule_id,
-          name: k.name,
-          domain: k.domain || k.group || "",
-          score,
-          weight_final: w,
-          impact,
-          priority: null,
-          group: k.group || "",
-        };
-      })
-      .sort((a, b) => {
-        if ((b.impact ?? 0) !== (a.impact ?? 0)) return (b.impact ?? 0) - (a.impact ?? 0);
-        const dp = domainPriority(b.domain) - domainPriority(a.domain);
-        if (dp !== 0) return dp;
-        return String(a.id).localeCompare(String(b.id));
-      })
-      .slice(0, 5)
-      .map((x) => ({ ...x, priority: "P1" }));
+    const engine = window.AnalysisEngine;
+
+    const top = engine && typeof engine.buildTopFixlist === "function"
+      ? engine.buildTopFixlist(kpis, { topN: 5 })
+      : [];
+
+    fixItems = top.map((x) => {
+      const origin = kpis.find((k) => (k.rule_id || k.id) === x.rule_id) || {};
+      return {
+        id: x.rule_id,
+        name: origin.name || x.rule_id,
+        domain: origin.domain || origin.group || x.group || "",
+        score: Number(origin.score ?? x.score ?? 0),
+        weight_final: Number(origin.weight_final ?? x.weight_final ?? 0),
+        impact: Number(x.impact ?? 0),
+        priority: "P1",
+        group: origin.group || x.group || "",
+      };
+    });
   }
 
   const fixlistHtml = fixItems.length
