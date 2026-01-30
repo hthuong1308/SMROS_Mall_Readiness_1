@@ -1047,6 +1047,11 @@ function saveAndRedirect(resultObj) {
         breakdown: Array.isArray(resultObj?.breakdown)
             ? resultObj.breakdown
             : (Array.isArray(resultObj?.kpis) ? resultObj.kpis : []),
+
+        // ✅ Alias for compatibility (RESULT/DASHBOARD may read local.kpis)
+        kpis: Array.isArray(resultObj?.kpis)
+            ? resultObj.kpis
+            : (Array.isArray(resultObj?.breakdown) ? resultObj.breakdown : []),
         computedAt: resultObj?.computedAt || new Date().toISOString(),
         version: resultObj?.version || "MRSM_WSM_v2",
 
