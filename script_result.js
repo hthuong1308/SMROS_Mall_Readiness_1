@@ -355,29 +355,29 @@ function domainOf(ruleId) {
 function calcGroupsAndKpisFromLocal(local) {
   const breakdown = Array.isArray(local?.breakdown) ? local.breakdown : [];
 
-  
-const kpis = breakdown.map((k) => {
-  const metaSSOT = (window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function")
-    ? window.MRSM_CONFIG.getKpiMeta(k.id)
-    : null;
 
-  const fallbackName = metaSSOT?.name || k.id;
-  const fallbackWeight = getWeightEffectiveFromConfig(k.id);
+  const kpis = breakdown.map((k) => {
+    const metaSSOT = (window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function")
+      ? window.MRSM_CONFIG.getKpiMeta(k.id)
+      : null;
 
-  return {
-    rule_id: k.id,
-    name: k.name ?? fallbackName,
-    group: groupOf(k.id),
-    domain: domainOf(k.id),
-    score: Number(k.score ?? 0),
-    // [SSOT] ưu tiên weight từ record, nếu thiếu thì lấy từ MRSM_CONFIG
-    weight_final: Number((k.weight ?? k.weight_final) ?? fallbackWeight),
-    value: k.value ?? null,
-    meta: k.meta ?? metaSSOT ?? null,
-    // Gate flag (optional)
-    is_gate: Boolean(k.is_gate ?? false),
-  };
-});
+    const fallbackName = metaSSOT?.name || k.id;
+    const fallbackWeight = getWeightEffectiveFromConfig(k.id);
+
+    return {
+      rule_id: k.id,
+      name: k.name ?? fallbackName,
+      group: groupOf(k.id),
+      domain: domainOf(k.id),
+      score: Number(k.score ?? 0),
+      // [SSOT] ưu tiên weight từ record, nếu thiếu thì lấy từ MRSM_CONFIG
+      weight_final: Number((k.weight ?? k.weight_final) ?? fallbackWeight),
+      value: k.value ?? null,
+      meta: k.meta ?? metaSSOT ?? null,
+      // Gate flag (optional)
+      is_gate: Boolean(k.is_gate ?? false),
+    };
+  });
 
   const groups = {};
   ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
@@ -502,7 +502,19 @@ function adaptLocalAssessment(local, forcedAssessmentId) {
   const shop = bestEffortShopInfo(local);
 
   // Gate status có thể được tạo bởi KO pages; nếu thiếu thì default PASS
-  const localGateStatus = local?.gate?.status || local?.gateStatus || local?.gate_status || local?.gate_state || "UNKNOWN";
+  let localGateStatus =
+    local?.gate?.status || local?.gateStatus || local?.gate_status || local?.gate_state || "UNKNOWN";
+
+  // ✅ Fallback infer gate status from soft_ko_gate (vì KPI_SCORING chỉ vào được khi gate PASS)
+  if (!localGateStatus || localGateStatus === "UNKNOWN" || localGateStatus === "—") {
+    const softRaw = localStorage.getItem("soft_ko_gate");
+    const soft = softRaw ? safeParseJson(softRaw) : null;
+    if (soft && soft.gate_status) {
+      localGateStatus = String(soft.gate_status).toUpperCase();
+    } else if (local && (local.totalScore !== undefined || local.mrsm?.final_score !== undefined)) {
+      localGateStatus = "PASS";
+    }
+  }
 
   const localHardFailed = local?.gate?.hard?.failed_rules || local?.hard_failed_rules || local?.hardFailedRules || [];
 
@@ -1068,6 +1080,26 @@ async function load() {
   // Không có backend /api => KHÔNG fetch /api/assessments nữa.
   // Thay vào đó: ưu tiên dữ liệu cache/localStorage.
   try {
+    // 0) by-id cache (được scoring_logic.js lưu theo key assessment_record__<id>)
+    const byIdRaw = localStorage.getItem(`assessment_record__${assessmentId}`);
+    const byId = byIdRaw ? safeParseJson(byIdRaw) : null;
+    if (byId && (byId.assessment_id || byId.assessmentId)) {
+      if (!byId.assessment_id && byId.assessmentId) byId.assessment_id = byId.assessmentId;
+      render(byId);
+      return;
+    }
+
+    // 0.5) latest cache
+    const latestRaw = localStorage.getItem("assessment_record_latest");
+    const latest = latestRaw ? safeParseJson(latestRaw) : null;
+    if (latest && (latest.assessment_id || latest.assessmentId)) {
+      if (!latest.assessment_id && latest.assessmentId) latest.assessment_id = latest.assessmentId;
+      if (latest.assessment_id === assessmentId) {
+        render(latest);
+        return;
+      }
+    }
+
     // 1) Ưu tiên record đã cache (dashboard/results flow)
     const cachedRaw = localStorage.getItem("assessment_record_local");
     const cached = cachedRaw ? safeParseJson(cachedRaw) : null;
