@@ -528,57 +528,80 @@ async function scoreCustom(ruleId) {
         return { score: ok ? 100 : 0, meta: { hasAddress: ok } };
     }
 
-    // CAT-02 (AUTO + fallback from draft)
+    // CAT-02 (2-step scoring: White bg check + Lifestyle presence)
     if (ruleId === "CAT-02") {
         const fWhite = $("CAT-02_white")?.files?.[0] || null;
         const fLife = $("CAT-02_life")?.files?.[0] || null;
 
-        // If no files (due to browser restore limitation) but draft has 2 filenames -> treat as completed evidence
+        // If no files (due to browser restore limitation) but draft has filenames -> treat as evidence
         if (!fWhite && !fLife) {
-            const { wn, ln, hasBoth } = getDraftCat02Names();
+            const { wn, ln, hasBoth, hasAny } = getDraftCat02Names();
             if (hasBoth) {
                 return {
                     score: 100,
                     finalScore: 100,
                     meta: {
                         restored_from_draft: true,
+                        white_ok: true,
+                        life_uploaded: true,
                         draft_white_name: wn,
                         draft_life_name: ln,
                         note: "Browser không phục hồi file input; dùng minh chứng đã lưu từ draft."
                     }
                 };
             }
+            if (hasAny) {
+                return {
+                    score: 50,
+                    finalScore: 50,
+                    meta: {
+                        restored_from_draft: true,
+                        white_ok: false,
+                        life_uploaded: !!ln,
+                        draft_white_name: wn,
+                        draft_life_name: ln,
+                        note: "Chỉ có 1 minh chứng trong draft."
+                    }
+                };
+            }
             return { score: 0, finalScore: 0, meta: { restored_from_draft: false, reason: "missing_both" } };
         }
 
-        // AUTO analyze selected files
-        let whiteOk = false, lifeOk = false;
+        // ✅ Rule:
+        // - Ảnh 2 (Lifestyle): chỉ cần upload là +50 (không phân tích pixel).
+        // - Ảnh 1 (Nền trắng + logo): phân tích tỷ lệ trắng; đạt chuẩn là +50.
+        let score = 0;
+
+        const lifeUploaded = !!fLife;
+        if (lifeUploaded) score += 50;
+
+        let whiteOk = false;
+        let whiteStats = null;
 
         if (fWhite) {
             try {
                 const img = await loadImageFromFile(fWhite);
-                whiteOk = isWhiteBackground(analyzeImage(img));
-            } catch (_) { whiteOk = false; }
-        }
-        if (fLife) {
-            try {
-                const img = await loadImageFromFile(fLife);
-                lifeOk = isLifestyle(analyzeImage(img));
-            } catch (_) { lifeOk = false; }
+                whiteStats = analyzeImage(img);
+                whiteOk = isWhiteBackground(whiteStats);
+            } catch (_) {
+                whiteOk = false;
+            }
         }
 
-        const passCount = (whiteOk ? 1 : 0) + (lifeOk ? 1 : 0);
-        const autoScore = passCount === 2 ? 100 : (passCount === 1 ? 50 : 0);
+        if (whiteOk) score += 50;
+
+        const finalScore = Math.min(100, score);
 
         return {
-            score: autoScore,
-            finalScore: autoScore,
+            score: finalScore,
+            finalScore: finalScore,
             meta: {
-                whiteOk,
-                lifeOk,
-                auto_score: autoScore,
-                final_score: autoScore,
-                restored_from_draft: false
+                restored_from_draft: false,
+                life_uploaded: lifeUploaded,
+                white_uploaded: !!fWhite,
+                white_ok: whiteOk,
+                white_stats: whiteStats,
+                rule: "life_upload=+50; white_ok=+50"
             }
         };
     }
