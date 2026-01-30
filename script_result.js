@@ -1,11 +1,5 @@
 const $ = (id) => document.getElementById(id);
-document.addEventListener('DOMContentLoaded', () => {
-  if (window.GateGuard) {
-    window.GateGuard.requireSoftGatePassOrRedirect({
-      redirectOnMissing: true,
-    });
-  }
-});
+// NOTE: Trang RESULTS cho phép hiển thị cả trạng thái Gate Blocked (score=0) để giải thích rõ lý do.
 let toastTimer = null;
 
 /* ============================================================
@@ -353,10 +347,26 @@ function domainOf(ruleId) {
 }
 
 function calcGroupsAndKpisFromLocal(local) {
-  const breakdown = Array.isArray(local?.breakdown) ? local.breakdown : [];
+  // Ưu tiên schema mới: assessment_result.breakdown (scoring_logic.js)
+  let itemsRaw = Array.isArray(local?.breakdown) ? local.breakdown : [];
 
+  // Backward-compat: một số build cũ lưu KPI list ở local.kpis
+  // hoặc lưu theo schema dashboard (assessment_record_local.kpis)
+  if (!itemsRaw.length && Array.isArray(local?.kpis)) {
+    itemsRaw = local.kpis
+      .map((k) => ({
+        id: k.id || k.rule_id || k.kpiId,
+        name: k.name,
+        score: k.score,
+        weight: (k.weight_final ?? k.weight),
+        value: k.value ?? null,
+        meta: k.meta ?? null,
+        is_gate: k.is_gate ?? false,
+      }))
+      .filter((x) => !!x.id);
+  }
 
-  const kpis = breakdown.map((k) => {
+  const kpis = itemsRaw.map((k) => {
     const metaSSOT = (window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function")
       ? window.MRSM_CONFIG.getKpiMeta(k.id)
       : null;
@@ -502,19 +512,7 @@ function adaptLocalAssessment(local, forcedAssessmentId) {
   const shop = bestEffortShopInfo(local);
 
   // Gate status có thể được tạo bởi KO pages; nếu thiếu thì default PASS
-  let localGateStatus =
-    local?.gate?.status || local?.gateStatus || local?.gate_status || local?.gate_state || "UNKNOWN";
-
-  // ✅ Fallback infer gate status from soft_ko_gate (vì KPI_SCORING chỉ vào được khi gate PASS)
-  if (!localGateStatus || localGateStatus === "UNKNOWN" || localGateStatus === "—") {
-    const softRaw = localStorage.getItem("soft_ko_gate");
-    const soft = softRaw ? safeParseJson(softRaw) : null;
-    if (soft && soft.gate_status) {
-      localGateStatus = String(soft.gate_status).toUpperCase();
-    } else if (local && (local.totalScore !== undefined || local.mrsm?.final_score !== undefined)) {
-      localGateStatus = "PASS";
-    }
-  }
+  const localGateStatus = local?.gate?.status || local?.gateStatus || local?.gate_status || local?.gate_state || "UNKNOWN";
 
   const localHardFailed = local?.gate?.hard?.failed_rules || local?.hard_failed_rules || local?.hardFailedRules || [];
 
@@ -1080,26 +1078,6 @@ async function load() {
   // Không có backend /api => KHÔNG fetch /api/assessments nữa.
   // Thay vào đó: ưu tiên dữ liệu cache/localStorage.
   try {
-    // 0) by-id cache (được scoring_logic.js lưu theo key assessment_record__<id>)
-    const byIdRaw = localStorage.getItem(`assessment_record__${assessmentId}`);
-    const byId = byIdRaw ? safeParseJson(byIdRaw) : null;
-    if (byId && (byId.assessment_id || byId.assessmentId)) {
-      if (!byId.assessment_id && byId.assessmentId) byId.assessment_id = byId.assessmentId;
-      render(byId);
-      return;
-    }
-
-    // 0.5) latest cache
-    const latestRaw = localStorage.getItem("assessment_record_latest");
-    const latest = latestRaw ? safeParseJson(latestRaw) : null;
-    if (latest && (latest.assessment_id || latest.assessmentId)) {
-      if (!latest.assessment_id && latest.assessmentId) latest.assessment_id = latest.assessmentId;
-      if (latest.assessment_id === assessmentId) {
-        render(latest);
-        return;
-      }
-    }
-
     // 1) Ưu tiên record đã cache (dashboard/results flow)
     const cachedRaw = localStorage.getItem("assessment_record_local");
     const cached = cachedRaw ? safeParseJson(cachedRaw) : null;
