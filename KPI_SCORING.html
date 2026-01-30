@@ -163,14 +163,12 @@
         }
 
         .sidebar {
-           display: flex;
-    flex-direction: column;
-    gap: 20px;
-    height: auto !important;        /* Để chiều cao tự nhiên theo nội dung */
-    min-height: 100vh;              /* Ít nhất bằng màn hình */
-    position: relative !important;  /* Bỏ sticky để tránh lỗi hiển thị trên màn nhỏ */
-    overflow: visible !important;   /* Không được ẩn nội dung tràn */
-    max-height: none !important;    /* Quan trọng: Xóa giới hạn chiều cao cũ */
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            position: sticky;
+            top: 20px;
+            height: fit-content;
         }
 
         @media (max-width:1024px) {
@@ -1461,21 +1459,29 @@
                             <div class="status" id="status-CAT-01">Chưa nhập dữ liệu</div>
                         </div>
 
-                        <!-- CAT-02 (UPDATED TEXT: image standard + no violation) -->
+                                                <!-- CAT-02 (UPDATED: image standard + no violation) -->
                         <div class="kpi-card cat">
                             <div class="kpi-top">
                                 <div class="kpi-left">
                                     <div class="kpi-icon">🖼️</div>
                                     <div class="kpi-title">
                                         <div class="kpi-id">CAT-02</div>
-                                        <div class="kpi-name">Ảnh đạt chuẩn (Nền trắng + Lifestyle + không vi phạm)
+                                        <div class="kpi-name">Ảnh đạt chuẩn (Ảnh 1 nền trắng + Ảnh 2 lifestyle + không vi phạm)
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
+                            <div class="hint">
+                                <b>Ảnh 1 (tải trước):</b> Nền trắng + logo/packshot rõ. Hệ thống sẽ <b>đo tỷ lệ trắng</b> để chấm <b>50đ</b> nếu đạt.
+                            </div>
+
                             <div class="input-shell">
                                 <input id="CAT-02_white" class="kpi-input" type="file" accept="image/*" />
+                            </div>
+
+                            <div class="hint" style="margin-top:10px;">
+                                <b>Ảnh 2:</b> Ảnh <b>lifestyle</b> (thể hiện chương trình của shop hoặc thumbnail chính của hãng). Chỉ cần upload là được <b>50đ</b> (không đo nền trắng).
                             </div>
 
                             <div class="input-shell" style="margin-top:10px;">
@@ -1484,24 +1490,17 @@
 
                             <div class="hint">
                                 Lưu ý: Trình duyệt không thể tự nạp lại file đã chọn. Nếu bạn quay lại trang, hệ thống
-                                sẽ dùng
-                                <b>minh chứng đã lưu</b> (tên file) để xác nhận — hoặc bạn có thể chọn lại ảnh để chấm
+                                sẽ dùng <b>minh chứng đã lưu</b> (tên file) để xác nhận — hoặc bạn có thể chọn lại ảnh để chấm
                                 AUTO chính xác hơn.
                             </div>
 
                             <div class="req ge">
-                                Tiêu chuẩn: <strong>Đủ 2 ảnh</strong> (1 nền trắng + 1 lifestyle) &amp; <strong>không vi
-                                    phạm</strong>
-                            </div>
-
-                            <div class="hint">
-                                Chấm điểm: đủ cả 2 = <b>100</b>, thiếu 1 trong 2 = <b>50</b>, vi phạm = <b>0</b>
+                                Chấm điểm: <strong>Ảnh 1 đạt chuẩn</strong> = <b>50</b>, <strong>Ảnh 2 đã upload</strong> = <b>50</b> → tổng <b>0/50/100</b>.
                             </div>
 
                             <div class="status" id="status-CAT-02">Chưa nhập dữ liệu</div>
                         </div>
-
-                        <!-- CAT-03 (UPDATED: blocked/deleted products) -->
+<!-- CAT-03 (UPDATED: blocked/deleted products) -->
                         <div class="kpi-card cat">
                             <div class="kpi-top">
                                 <div class="kpi-left">
@@ -1703,4 +1702,3 @@
 </body>
 
 </html>
-
