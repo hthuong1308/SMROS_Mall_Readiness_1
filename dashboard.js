@@ -24,25 +24,46 @@
 
     document.addEventListener("DOMContentLoaded", () => {
         setLoading(true);
+
         // Fail-closed dependencies
         if (!window.GateGuard || !window.MRSM_CONFIG) {
             window.location.href = "KO_GATE.html?reason=schema_mismatch";
             return;
         }
 
-        // Require assessment context (fail-closed)
-        const aid = window.GateGuard.getAssessmentContext({ redirectOnMissing: true });
-        if (!aid) return;
+        // =========================================
+        // Assessment context (GitHub Pages friendly)
+        // - Từ RESULTS, link có thể là:
+        //   + ?assessment_id=LOCAL_...
+        //   + ?mode=local (không kèm assessment_id)
+        // Dashboard cần tự "bắt" aid từ query OR current_assessment_id.
+        // =========================================
+        const qs = new URL(window.location.href).searchParams;
+        const isLocalMode = qs.get("mode") === "local" || !qs.get("assessment_id");
+
+        const aidFromQuery = qs.get("assessment_id") || "";
+        const aidFromSticky =
+            sessionStorage.getItem("current_assessment_id") ||
+            localStorage.getItem("current_assessment_id") ||
+            "";
+
+        // GateGuard có thể tự suy ra aid (nếu implement có fallback)
+        const aidFromGuard =
+            (window.GateGuard && typeof window.GateGuard.getAssessmentContext === "function")
+                ? (window.GateGuard.getAssessmentContext({ redirectOnMissing: false }) || "")
+                : "";
+
+        const aid = aidFromQuery || aidFromSticky || aidFromGuard;
 
         // Require Hard evidence (fail-closed)
         if (!window.GateGuard.requireHardGateOrRedirect({ redirectOnMissing: true })) return;
 
-        // Soft gate is NOT required to be PASS for Dashboard viewing,
-        // but it should exist to show G1/G2/PASS properly.
+        // Soft gate should exist to show G1/G2/PASS properly.
         // If missing -> redirect to SOFT_KO (fail-closed)
         if (!window.GateGuard.requireSoftGateOrRedirect({ redirectOnMissing: true })) return;
 
-        loadData();
+        // Nếu không có aid và cũng không có assessment_result/record => show empty (không redirect vòng lặp)
+        loadData({ preferredAssessmentId: aid, isLocalMode });
     });
 
     // ========================
@@ -304,97 +325,95 @@
     // ========================
     // Load + Adapt
     // ========================
-    function loadData() {
-        const qs = new URL(window.location.href).searchParams;
-        const aid = (qs.get("assessment_id") || "").trim();
-
+    function loadData(opts = {}) {
         const resultKey = window.MRSM_CONFIG?.ASSESSMENT_RESULT_KEY || "assessment_result";
+        const preferredAssessmentId = String(opts.preferredAssessmentId || "").trim();
+        const isLocalMode = !!opts.isLocalMode;
 
-        const tryGet = (key) => {
+        // ================================
+        // GitHub Pages local-first hydrate
+        // Priority:
+        // 1) assessment_record__{aid}
+        // 2) assessment_record_local (nếu match aid hoặc local mode)
+        // 3) scan localStorage: assessment_record__* (latest)
+        // 4) assessment_result (latest facts)
+        // 5) legacy assessmentData
+        // ================================
+        const candidates = [];
+        if (preferredAssessmentId) {
+            // record schema (preferred)
+            candidates.push(`assessment_record__${preferredAssessmentId}`);
+            // raw result facts schema (optional)
+            candidates.push(`assessment_result__${preferredAssessmentId}`);
+        }
+        // latest caches
+        candidates.push("assessment_record_local");
+        candidates.push("assessment_record_latest");
+        // legacy/global keys
+        candidates.push(resultKey);
+        candidates.push("assessmentData");
+
+        const tryParse = (raw) => {
             try {
-                const v = localStorage.getItem(key);
-                if (!v) return null;
-                const t = String(v).trim();
-                return t ? t : null;
-            } catch (_) {
+                return raw ? JSON.parse(raw) : null;
+            } catch {
                 return null;
             }
         };
 
-        // Prefer record-by-id if URL has assessment_id
-        let localRaw = null;
+        // 1/2/4/5 direct candidates
+        let parsed = null;
+        for (const key of candidates) {
+            const raw = localStorage.getItem(key);
+            const obj = tryParse(raw);
+            if (!obj) continue;
 
-        if (aid) {
-            const candidates = [
-                `assessment_record__${aid}`,
-                `assessment_record__${aid}__local`,
-                `assessment_record_local__${aid}`,
-                `assessment_record_${aid}`,
-                `assessment_${aid}`,
-            ];
-
-            for (const key of candidates) {
-                localRaw = tryGet(key);
-                if (localRaw) break;
-            }
-
-            // Fallback scan: in case key naming changed
-            if (!localRaw) {
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (!key) continue;
-                    if (!String(key).includes(aid)) continue;
-
-                    const looksLikeAssessment =
-                        key === resultKey ||
-                        key === "assessment_record_local" ||
-                        key.startsWith("assessment_record__") ||
-                        key.startsWith("assessment_record_local") ||
-                        key.startsWith("assessment_");
-
-                    if (!looksLikeAssessment) continue;
-
-                    const v = tryGet(key);
-                    if (v) {
-                        localRaw = v;
+            // If we have a preferred aid, ensure match when possible
+            const objAid = String(obj.assessment_id || obj.assessmentId || obj.id || "");
+            if (preferredAssessmentId) {
+                if (key === "assessment_record_local") {
+                    // local mode may not store exact id on older builds, allow
+                    if (isLocalMode || objAid === preferredAssessmentId) {
+                        parsed = obj;
                         break;
                     }
+                } else if (objAid === preferredAssessmentId || key === resultKey || String(key).startsWith("assessment_result__")) {
+                    // assessment_result is global (latest) so accept as fallback
+                    // assessment_result__{aid} may not embed assessment_id, still accept
+                    parsed = obj;
+                    break;
                 }
+            } else {
+                // no preferred id => accept first valid
+                parsed = obj;
+                break;
             }
         }
 
-        // Fallback to latest local result
-        if (!localRaw) {
-            localRaw = tryGet(resultKey) || tryGet("assessmentData") || tryGet("assessment_record_local");
+        // 3) scan latest assessment_record__*
+        if (!parsed) {
+            let best = null;
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (!k || !k.startsWith("assessment_record__")) continue;
+                const obj = tryParse(localStorage.getItem(k));
+                if (!obj) continue;
+
+                const ts = obj.assessed_at || obj.timestamp || obj.computedAt || obj.evaluated_at || obj.evaluatedAt;
+                const t = ts ? new Date(ts).getTime() : 0;
+                const bestT = best?.__t || 0;
+                if (!best || t > bestT) best = { __t: t, obj };
+            }
+            if (best && best.obj) parsed = best.obj;
         }
 
         // No result yet => show empty dashboard state (but still keep gate context)
-        if (!localRaw) {
-            showEmptyState();
-            return;
-        }
-
-        const parsed = safeJsonParse(localRaw);
         if (!parsed) {
-            console.error("[Dashboard] JSON parse error");
             showEmptyState();
             return;
         }
-
-        // ✅ Normalize schema via AnalysisEngine (if available)
-        const normalizedParsed = (window.AnalysisEngine && typeof window.AnalysisEngine.normalizeAssessmentPayload === 'function')
-            ? window.AnalysisEngine.normalizeAssessmentPayload(parsed)
-            : parsed;
-
-        // Mirror to canonical key so future loads succeed
-        try {
-            const existing = tryGet(resultKey);
-            if (!existing) localStorage.setItem(resultKey, JSON.stringify(normalizedParsed));
-        } catch (_) { }
 
         // Fail-closed: if in local mode without hard evidence anywhere => KO_GATE
-        const isLocalMode = qs.get("mode") === "local" || !aid;
-
         if (isLocalMode) {
             const hardRaw = sessionStorage.getItem(window.MRSM_CONFIG?.HARD_GATE_KEY || "validatedHardKO");
             const hasHard = !!hardRaw;
@@ -408,7 +427,16 @@
             }
         }
 
-        assessmentData = adaptLocalData(normalizedParsed);
+        // Sticky aid for cross-page navigation
+        try {
+            const aid = String(parsed.assessment_id || parsed.assessmentId || preferredAssessmentId || "");
+            if (aid) {
+                sessionStorage.setItem("current_assessment_id", aid);
+                localStorage.setItem("current_assessment_id", aid);
+            }
+        } catch (_) { /* ignore */ }
+
+        assessmentData = adaptLocalData(parsed);
         renderDashboard();
     }
 
@@ -464,18 +492,15 @@
     }
 
     function adaptLocalData(local) {
-        // ✅ Ensure payload is normalized (kpis/group/weight_final) when AnalysisEngine is available
-        const _engine = (window.AnalysisEngine && typeof window.AnalysisEngine.normalizeAssessmentPayload === 'function') ? window.AnalysisEngine : null;
-        const _local = _engine ? _engine.normalizeAssessmentPayload(local) : local;
-        const asmID = _local.assessment_id || local.assessmentId || local.id || ("ASM-" + Date.now());
-        const category = _local.category || local.loai || "Không rõ";
-        const assessedAt = _local.assessed_at || local.timestamp || local.computedAt || new Date().toISOString();
+        const asmID = local.assessment_id || local.assessmentId || local.id || ("ASM-" + Date.now());
+        const category = local.category || local.loai || "Không rõ";
+        const assessedAt = local.assessed_at || local.timestamp || local.computedAt || new Date().toISOString();
 
-        const gateInfo = normalizeGateFromSnapshot(_local);
+        const gateInfo = normalizeGateFromSnapshot(local);
 
         // KPI items
         let kpis = [];
-        const bd = _local.kpis || _local.breakdown || _local.results || _local.mrsm?.breakdown || [];
+        const bd = local.breakdown || local.kpis || local.results || local.mrsm?.breakdown || [];
 
         for (const k of bd) {
             const value =
