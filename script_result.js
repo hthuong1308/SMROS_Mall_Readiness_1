@@ -540,24 +540,28 @@ function bestEffortShopInfo(local) {
 }
 
 function adaptLocalAssessment(local, forcedAssessmentId) {
-  const computedAt = local.computedAt || new Date().toISOString();
+  const computedAt = local.computedAt || local.evaluated_at || local.evaluatedAt || new Date().toISOString();
   const { kpis, groups } = calcGroupsAndKpisFromLocal(local);
   const shop = bestEffortShopInfo(local);
 
-  // Gate status có thể được tạo bởi KO pages; nếu thiếu thì default PASS
-  const localGateStatus = local?.gate?.status || local?.gateStatus || local?.gate_status || local?.gate_state || "UNKNOWN";
+  // Gate status có thể được tạo bởi KO pages; nếu thiếu thì default UNKNOWN (fail-closed sẽ force score=0 khi != PASS)
+  const localGateStatus =
+    local?.gate?.status || local?.gateStatus || local?.gate_status || local?.gate_state || "UNKNOWN";
 
   const localHardFailed = local?.gate?.hard?.failed_rules || local?.hard_failed_rules || local?.hardFailedRules || [];
-
   const localSoftItems = local?.gate?.soft?.items || local?.soft_items || local?.softItems || {};
+  const localSoftDeadline = local?.gate?.soft?.deadline_at || local?.soft_deadline_at || local?.softDeadlineAt || null;
 
-  const localSoftDeadline =
-    local?.gate?.soft?.deadline_at || local?.soft_deadline_at || local?.softDeadlineAt || null;
+  const totalScore = Number(local.totalScore ?? local.total_score ?? 0);
 
-  const totalScore = Number(local.totalScore ?? 0);
+  const aid =
+    forcedAssessmentId ||
+    local.assessment_id ||
+    local.assessmentId ||
+    ("LOCAL_" + String(computedAt).replace(/[:.]/g, ""));
 
   return {
-    assessment_id: "LOCAL_" + computedAt.replace(/[:.]/g, ""),
+    assessment_id: aid,
     evaluated_at: computedAt,
     shop,
 
@@ -588,13 +592,40 @@ function adaptLocalAssessment(local, forcedAssessmentId) {
 function ensureAssessmentRecord(obj, assessmentId) {
   if (!obj || typeof obj !== "object") return null;
 
-  // Record schema
+  // Record schema (FireStore/local cached) — but still recompute groups/kpis to avoid schema mismatch
   if (obj.mrsm && (obj.mrsm.final_score !== undefined || obj.mrsm.finalScore !== undefined)) {
+    const rec = { ...obj };
+
     // Ensure assessment_id align for navigation
-    if (assessmentId && !(obj.assessment_id === assessmentId || obj.assessmentId === assessmentId)) {
-      obj.assessment_id = assessmentId;
+    if (assessmentId && !(rec.assessment_id === assessmentId || rec.assessmentId === assessmentId)) {
+      rec.assessment_id = assessmentId;
     }
-    return obj;
+
+    // Normalize evaluated_at
+    rec.evaluated_at = rec.evaluated_at || rec.evaluatedAt || rec.computedAt || new Date().toISOString();
+
+    // Normalize shop
+    rec.shop = rec.shop || bestEffortShopInfo(rec);
+
+    // Normalize gate container
+    if (!rec.gate || typeof rec.gate !== "object") {
+      rec.gate = {
+        status: rec.gate_status || rec.gateStatus || "UNKNOWN",
+        hard: { failed_rules: [] },
+        soft: { items: {}, deadline_at: null },
+      };
+    }
+
+    // ✅ Recompute groups/kpis from rec.kpis/breakdown (standardize group + weight_final + impact inputs)
+    const rawLocal = {
+      kpis: Array.isArray(rec.kpis) ? rec.kpis : (Array.isArray(rec.breakdown) ? rec.breakdown : []),
+      breakdown: Array.isArray(rec.breakdown) ? rec.breakdown : null,
+    };
+    const { kpis, groups } = calcGroupsAndKpisFromLocal(rawLocal);
+    rec.kpis = kpis;
+    rec.groups = groups;
+
+    return rec;
   }
 
   // Payload facts schema
