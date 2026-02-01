@@ -1,707 +1,1066 @@
 <!DOCTYPE html>
-
 <html lang="vi">
 
 <head>
     <meta charset="utf-8" />
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>Đánh giá Shop - Shopee Mall Readiness</title>
-    <link href="style_v2.css" rel="stylesheet" />
+    <title>Hard KO - Shopee Mall Readiness</title>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            background: #F9FAFB;
+            color: #111827;
+            line-height: 1.5;
+        }
+
+        .page-container {
+            min-height: 100vh;
+            padding-bottom: 40px;
+        }
+
+        /* Header (same as SOFT_KO) */
+        .assessment-header {
+            background: #FFFFFF;
+            border-bottom: 2px solid #E5E7EB;
+            padding: 32px 0;
+        }
+
+        .header-content {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 0 40px;
+            text-align: center;
+        }
+
+        .header-content h1 {
+            font-size: 28px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 8px;
+        }
+
+        .header-content p {
+            font-size: 16px;
+            color: #6B7280;
+        }
+
+        /* Progress Indicator (same as SOFT_KO) */
+        .progress-indicator {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 24px;
+        }
+
+        .progress-step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .step-number {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #E5E7EB;
+            color: #6B7280;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .progress-step.completed .step-number {
+            background: #10B981;
+            color: #fff;
+        }
+
+        .progress-step.active .step-number {
+            background: #EE4D2D;
+            color: #fff;
+        }
+
+        .progress-step span {
+            font-size: 14px;
+            color: #6B7280;
+            font-weight: 600;
+        }
+
+        .progress-step.active span,
+        .progress-step.completed span {
+            color: #111827;
+        }
+
+        .progress-line {
+            width: 60px;
+            height: 2px;
+            background: #E5E7EB;
+        }
+
+        .progress-line.active {
+            background: #EE4D2D;
+        }
+
+        /* Main Content */
+        .assessment-content {
+            max-width: 1280px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 40px 40px 0;
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 32px;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            position: sticky;
+            top: 20px;
+            height: fit-content;
+        }
+
+        .info-panel {
+            background: #FFFFFF;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .info-panel h3 {
+            background: linear-gradient(135deg, #374151, #111827);
+            color: #fff;
+            padding: 16px 20px;
+            font-size: 15px;
+            font-weight: 700;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Guide List */
+        .info-panel ul.guide {
+            list-style: none;
+            counter-reset: step-counter;
+            padding: 10px 0;
+            margin: 0;
+        }
+
+        .info-panel ul.guide li {
+            font-size: 13px;
+            color: #4B5563;
+            line-height: 1.6;
+            padding: 12px 20px 12px 48px;
+            position: relative;
+            border-bottom: 1px solid #f3f4f6;
+            transition: background 0.2s ease;
+        }
+
+        .info-panel ul.guide li:last-child {
+            border-bottom: none;
+        }
+
+        .info-panel ul.guide li:hover {
+            background: #fdf2f0;
+        }
+
+        .info-panel ul.guide li::before {
+            content: counter(step-counter);
+            counter-increment: step-counter;
+            position: absolute;
+            left: 18px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 20px;
+            height: 20px;
+            background: #EE4D2D;
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        .info-panel ul.guide li b {
+            color: #EE4D2D;
+            font-weight: 700;
+        }
+
+        /* Checklist (same vibe as SOFT_KO) */
+        .checklist {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 20px;
+        }
+
+        .checklist-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 14px 20px;
+            border-top: 1px solid #E5E7EB;
+            background: #F9FAFB;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 800;
+            border: 1px solid transparent;
+            white-space: nowrap;
+            user-select: none;
+        }
+
+        .badge.warning {
+            background: #FEF3C7;
+            color: #92400E;
+            border-color: #FDE68A;
+        }
+
+        .badge.success {
+            background: #D1FAE5;
+            color: #065F46;
+            border-color: #A7F3D0;
+        }
+
+        .badge.danger {
+            background: #FEE2E2;
+            color: #991B1B;
+            border-color: #FECACA;
+        }
+
+        /* JS render list: support both progress-item + checklist-item styles */
+        #progressList {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .progress-item,
+        .checklist-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: #f9fafb;
+            border-radius: 10px;
+            border: 1px solid #e5e7eb;
+            border-left: 4px solid #e5e7eb;
+            font-size: 13px;
+            color: #4b5563;
+            transition: all 0.3s ease;
+        }
+
+        .progress-item.pass,
+        .checklist-item.completed {
+            background: #f0fdf4;
+            border-color: #bbf7d0;
+            border-left-color: #10b981;
+            color: #166534;
+        }
+
+        .progress-item.fail {
+            background: #FEF2F2;
+            border-color: #FECACA;
+            border-left-color: #EF4444;
+            color: #991B1B;
+        }
+
+        .dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid #9CA3AF;
+            flex: 0 0 auto;
+            display: inline-block;
+        }
+
+        .progress-item.pass .dot {
+            border-color: #10B981;
+            background: #10B981;
+        }
+
+        .progress-item.fail .dot {
+            border-color: #EF4444;
+            background: #EF4444;
+        }
+
+        .progress-text {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .progress-text strong {
+            font-size: 13px;
+            color: inherit;
+            font-weight: 800;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .progress-text span {
+            font-size: 12px;
+            opacity: .85;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .progress-footer {
+            padding: 15px 20px;
+            background: #f8fafc;
+            border-top: 1px solid #e5e7eb;
+        }
+
+        #progress-text {
+            font-size: 13px;
+            color: #374151;
+            font-weight: 800;
+            margin: 0;
+        }
+
+        /* Main Form */
+        .main-form {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .form-card {
+            background: #FFFFFF;
+            border: 2px solid #E5E7EB;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .card-header {
+            background: #F9FAFB;
+            border-bottom: 2px solid #E5E7EB;
+            padding: 20px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .card-header h2 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #111827;
+            margin: 0;
+        }
+
+        .card-body {
+            padding: 32px 36px;
+        }
+
+        .metrics-description {
+            margin-bottom: 28px;
+            padding: 16px 20px;
+            background: #FEF3F2;
+            border-left: 4px solid #EE4D2D;
+            border-radius: 8px;
+        }
+
+        .metrics-description p {
+            font-size: 14px;
+            color: #7C2D12;
+            line-height: 1.6;
+            margin: 0;
+            font-weight: 600;
+        }
+
+        /* Inputs */
+        .input-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .input-group label {
+            margin-bottom: 2px;
+            font-size: 14px;
+            font-weight: 700;
+            color: #374151;
+        }
+
+        .required {
+            color: #EE4D2D;
+        }
+
+        .input-group input,
+        .input-group select {
+            padding: 14px 16px;
+            border: 2px solid #E5E7EB;
+            border-radius: 8px;
+            font-size: 16px;
+            color: #111827;
+            transition: all 0.2s;
+            background: #fff;
+        }
+
+        .input-group input:focus,
+        .input-group select:focus {
+            outline: none;
+            border-color: #EE4D2D;
+            box-shadow: 0 0 0 3px rgba(238, 77, 45, 0.10);
+        }
+
+        .helper {
+            font-size: 12px;
+            color: #6B7280;
+            line-height: 1.5;
+        }
+
+        /* Upload Section (same skeleton as KO_GATE cũ) */
+        .upload-row-enhanced {
+            display: grid;
+            grid-template-columns: 1fr 360px;
+            gap: 24px;
+            margin-bottom: 28px;
+            padding-bottom: 28px;
+            border-bottom: 1px solid #E5E7EB;
+            align-items: start;
+        }
+
+        .upload-row-enhanced:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .upload-section {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .upload-title {
+            font-size: 14px;
+            font-weight: 800;
+            color: #374151;
+        }
+
+        .upload-area {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            background: #F9FAFB;
+            border: 2px dashed #E5E7EB;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .upload-area:hover {
+            border-color: #EE4D2D;
+            background: #FEF3F2;
+        }
+
+        .upload-area input[type="file"] {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .upload-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: #fff;
+            border: 1px solid #E5E7EB;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            flex: 0 0 auto;
+        }
+
+        .upload-text {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .upload-text strong {
+            font-size: 13px;
+            font-weight: 800;
+            color: #111827;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .upload-text span {
+            font-size: 12px;
+            color: #6B7280;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .file-meta {
+            font-size: 12px;
+            font-weight: 800;
+            color: #374151;
+            word-break: break-word;
+        }
+
+        .input-with-status {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 900;
+            background: #F3F4F6;
+            color: #6B7280;
+            border: 1px solid #E5E7EB;
+            white-space: nowrap;
+        }
+
+        .status-badge.valid {
+            background: #D1FAE5;
+            color: #065F46;
+            border-color: #A7F3D0;
+        }
+
+        .status-badge.invalid {
+            background: #FEE2E2;
+            color: #991B1B;
+            border-color: #FECACA;
+        }
+
+        /* Guide image */
+        .guide-panel {
+            background: #FFFFFF;
+            border: 2px solid #E5E7EB;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .guide-panel h4 {
+            background: linear-gradient(135deg, #374151, #111827);
+            color: #fff;
+            padding: 12px 16px;
+            font-size: 13px;
+            font-weight: 800;
+            margin: 0;
+        }
+
+        .guide-body {
+            padding: 16px;
+        }
+
+        .guide-image {
+            width: 100%;
+            height: 200px;
+            border-radius: 10px;
+            border: 1px solid #E5E7EB;
+            background: #F9FAFB;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+
+        .guide-image img {
+            width: 100%;
+            height: 100%;
+            display: block;
+            object-fit: cover;
+            object-position: center;
+        }
+
+        /* FIX KO-02: show top part (avoid cutting the title) */
+        .guide-image.ko02 img {
+            object-position: top;
+        }
+
+        .guide-caption {
+            font-size: 12px;
+            color: #6B7280;
+            line-height: 1.55;
+        }
+
+        /* Final Status Message */
+        .final-status-box {
+            background: #FFFFFF;
+            border: 2px solid #E5E7EB;
+            border-radius: 12px;
+            padding: 20px 28px;
+            text-align: center;
+        }
+
+        .final-msg {
+            font-size: 16px;
+            font-weight: 800;
+            padding: 16px;
+            border-radius: 10px;
+        }
+
+        .final-msg.pass {
+            background: #D1FAE5;
+            color: #065F46;
+        }
+
+        .final-msg.fail {
+            background: #FEE2E2;
+            color: #991B1B;
+        }
+
+        /* Form Actions (same as SOFT_KO) */
+        .form-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 28px 28px;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .reset-button,
+        .submit-button {
+            padding: 14px 32px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .reset-button {
+            background: #6B7280;
+            color: #fff;
+        }
+
+        .reset-button:hover {
+            background: #4B5563;
+        }
+
+        .submit-button {
+            background: #EE4D2D;
+            color: #fff;
+            box-shadow: 0 2px 4px rgba(238, 77, 45, 0.20);
+        }
+
+        .submit-button:hover:not(.disabled) {
+            background: #D73211;
+            box-shadow: 0 4px 8px rgba(238, 77, 45, 0.30);
+            transform: translateY(-1px);
+        }
+
+        .submit-button.disabled {
+            background: #D1D5DB;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* Small utility buttons in sidebar */
+        .mini-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            padding: 20px;
+            border-top: 1px solid #E5E7EB;
+            background: #fff;
+        }
+
+        .mini-btn {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 2px solid #E5E7EB;
+            background: #fff;
+            font-size: 13px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mini-btn:hover {
+            border-color: #EE4D2D;
+            background: #FEF3F2;
+        }
+
+        .mini-btn.danger {
+            border-color: #FECACA;
+            background: #FEF2F2;
+            color: #991B1B;
+        }
+
+        .mini-btn.danger:hover {
+            border-color: #EF4444;
+            background: #FEE2E2;
+        }
+
+        /* Modal + Toast (keep IDs) */
+        .toast {
+            position: fixed;
+            right: 16px;
+            bottom: 16px;
+            width: 340px;
+            max-width: calc(100vw - 32px);
+            background: #111827;
+            color: white;
+            border-radius: 12px;
+            padding: 12px 14px;
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
+            display: none;
+            z-index: 99999;
+        }
+
+        .toast.show {
+            display: block;
+        }
+
+        .toast-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+
+        .toast-title {
+            font-weight: 900;
+            font-size: 13px;
+        }
+
+        .toast-msg {
+            font-size: 12px;
+            opacity: 0.9;
+            line-height: 1.35;
+        }
+
+        .mini-close {
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid #374151;
+            background: transparent;
+            color: #fff;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(17, 24, 39, 0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            padding: 16px;
+        }
+
+        .modal-overlay.show {
+            display: flex;
+        }
+
+        .modal {
+            width: min(520px, 100%);
+            background: #fff;
+            border: 1px solid #E5E7EB;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 20px 45px rgba(0, 0, 0, 0.18);
+        }
+
+        .modal-header {
+            padding: 14px 16px;
+            border-bottom: 1px solid #E5E7EB;
+            font-weight: 900;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+
+        .modal-body {
+            padding: 16px;
+            color: #111827;
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .modal-actions {
+            padding: 14px 16px;
+            border-top: 1px solid #E5E7EB;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .modal-btn {
+            padding: 12px 18px;
+            border-radius: 10px;
+            border: 2px solid #E5E7EB;
+            background: #fff;
+            font-weight: 800;
+            cursor: pointer;
+        }
+
+        .modal-btn.primary {
+            background: #EE4D2D;
+            border-color: #EE4D2D;
+            color: #fff;
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .assessment-content {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                position: relative;
+                top: 0;
+            }
+
+            .upload-row-enhanced {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .assessment-content {
+                padding: 20px;
+            }
+
+            .header-content {
+                padding: 0 20px;
+            }
+
+            .input-row {
+                grid-template-columns: 1fr;
+            }
+
+            .form-actions {
+                flex-direction: column-reverse;
+            }
+
+            .reset-button,
+            .submit-button {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
 </head>
-<style>
-    * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-    }
-
-    body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        background: #F9FAFB;
-        margin: 0;
-        padding: 0;
-        color: #111827;
-    }
-
-    /* ============================================================
-       Header
-    ============================================================ */
-    .page-header {
-        background: linear-gradient(135deg, #1E40AF 0%, #3B82F6 100%);
-        color: white;
-        padding: 20px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-    }
-
-    .page-header h1 {
-        font-size: 22px;
-        margin-bottom: 6px;
-        font-weight: 800;
-    }
-
-    .page-header p {
-        font-size: 14px;
-        opacity: 0.9;
-    }
-
-    /* ============================================================
-       Layout
-    ============================================================ */
-    .assessment-container {
-        display: grid;
-        grid-template-columns: 320px 1fr;
-        gap: 16px;
-        padding: 16px;
-        max-width: 1200px;
-        margin: 0 auto;
-    }
-
-    @media (max-width: 1024px) {
-        .assessment-container {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .sidebar {
-        position: sticky;
-        top: 16px;
-        align-self: start;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-    }
-
-    .main {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-    }
-
-    /* ============================================================
-       Cards
-    ============================================================ */
-    .card {
-        background: white;
-        border: 1px solid #E5E7EB;
-        border-radius: 12px;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-        overflow: hidden;
-    }
-
-    .card-header {
-        padding: 14px 16px;
-        border-bottom: 1px solid #E5E7EB;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        background: #FFFFFF;
-    }
-
-    .card-title {
-        font-weight: 800;
-        font-size: 14px;
-        color: #111827;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .card-body {
-        padding: 16px;
-    }
-
-    .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 12px;
-        font-weight: 700;
-        border: 1px solid transparent;
-        user-select: none;
-        white-space: nowrap;
-    }
-
-    .badge.success {
-        background: #ECFDF5;
-        color: #047857;
-        border-color: #A7F3D0;
-    }
-
-    .badge.warning {
-        background: #FFFBEB;
-        color: #92400E;
-        border-color: #FDE68A;
-    }
-
-    .badge.danger {
-        background: #FEF2F2;
-        color: #B91C1C;
-        border-color: #FECACA;
-    }
-
-    /* ============================================================
-       Progress checklist
-    ============================================================ */
-    .progress-list {
-        list-style: none;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        padding: 0;
-        margin: 0;
-    }
-
-    .progress-item {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 10px;
-        padding: 10px 12px;
-        border: 1px solid #E5E7EB;
-        border-radius: 10px;
-        background: #FFFFFF;
-    }
-
-    .progress-left {
-        display: flex;
-        align-items: flex-start;
-        gap: 10px;
-        min-width: 0;
-    }
-
-    .dot {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-        background: #D1D5DB;
-        flex: 0 0 auto;
-        margin-top: 3px;
-    }
-
-    .progress-item.pass .dot {
-        background: #10B981;
-    }
-
-    .progress-item.fail .dot {
-        background: #EF4444;
-    }
-
-    .progress-text {
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        min-width: 0;
-    }
-
-    .progress-text strong {
-        font-size: 13px;
-        color: #111827;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .progress-text span {
-        font-size: 12px;
-        color: #6B7280;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    /* ============================================================
-       Forms
-    ============================================================ */
-    .grid-2 {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
-    }
-
-    @media (max-width: 640px) {
-        .grid-2 {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .field {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-    }
-
-    .field label {
-        font-size: 12px;
-        font-weight: 800;
-        color: #374151;
-    }
-
-    .field input,
-    .field select {
-        height: 40px;
-        border-radius: 10px;
-        border: 1px solid #E5E7EB;
-        padding: 0 12px;
-        font-size: 14px;
-        outline: none;
-        background: #FFFFFF;
-    }
-
-    .field input:focus,
-    .field select:focus {
-        border-color: #60A5FA;
-        box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
-    }
-
-    .help {
-        font-size: 12px;
-        color: #6B7280;
-        line-height: 1.4;
-    }
-
-    /* ============================================================
-       KO blocks
-    ============================================================ */
-    .ko-block {
-        display: grid;
-        grid-template-columns: 1fr 320px;
-        gap: 14px;
-        padding: 14px;
-        border: 1px solid #E5E7EB;
-        border-radius: 12px;
-        background: #FFFFFF;
-    }
-
-    @media (max-width: 1024px) {
-        .ko-block {
-            grid-template-columns: 1fr;
-        }
-    }
-
-    .ko-left {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-        min-width: 0;
-    }
-
-    .ko-right {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    .ko-title {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-    }
-
-    .ko-title h3 {
-        font-size: 14px;
-        font-weight: 900;
-        color: #111827;
-    }
-
-    .ko-title .id {
-        font-size: 12px;
-        font-weight: 900;
-        color: #1E40AF;
-        background: #EFF6FF;
-        border: 1px solid #BFDBFE;
-        padding: 4px 8px;
-        border-radius: 999px;
-        white-space: nowrap;
-    }
-
-    .uploader {
-        border: 2px dashed #D1D5DB;
-        border-radius: 12px;
-        padding: 12px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        align-items: flex-start;
-        background: #FAFAFA;
-    }
-
-    .uploader input[type="file"] {
-        width: 100%;
-    }
-
-    .file-meta {
-        font-size: 12px;
-        color: #374151;
-        font-weight: 700;
-        word-break: break-word;
-    }
-
-    .file-hint {
-        font-size: 12px;
-        color: #6B7280;
-        line-height: 1.35;
-    }
-
-    .ko-status {
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        gap: 8px;
-    }
-
-    .ko-status .label {
-        font-size: 12px;
-        font-weight: 800;
-        color: #374151;
-    }
-
-    .ko-status .pill {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 12px;
-        font-weight: 800;
-        border: 1px solid #E5E7EB;
-        background: #F9FAFB;
-        color: #6B7280;
-    }
-
-    .ko-status .pill.pass {
-        background: #ECFDF5;
-        color: #047857;
-        border-color: #A7F3D0;
-    }
-
-    .ko-status .pill.fail {
-        background: #FEF2F2;
-        color: #B91C1C;
-        border-color: #FECACA;
-    }
-
-    /* ============================================================
-       Guide panel (right box in KO blocks)
-    ============================================================ */
-    .guide-panel {
-        border: 1px solid #E5E7EB;
-        border-radius: 12px;
-        overflow: hidden;
-        background: #FFFFFF;
-    }
-
-    .guide-header {
-        background: #374151;
-        color: white;
-        padding: 12px 16px;
-        font-size: 13px;
-        font-weight: 700;
-    }
-
-    .guide-body {
-        padding: 16px;
-    }
-
-    .guide-image {
-        width: 100%;
-        height: 160px;
-        background: #F9FAFB;
-        border: 1px solid #E5E7EB;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: #9CA3AF;
-        font-size: 12px;
-        margin-bottom: 12px;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .guide-image img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: block;
-    }
-
-    .guide-caption {
-        font-size: 12px;
-        color: #6B7280;
-        line-height: 1.45;
-    }
-
-    /* ============================================================
-       Actions
-    ============================================================ */
-    .actions {
-        display: flex;
-        gap: 10px;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-    }
-
-    .btn {
-        height: 40px;
-        padding: 0 14px;
-        border-radius: 10px;
-        border: 1px solid #E5E7EB;
-        background: #FFFFFF;
-        color: #111827;
-        font-weight: 800;
-        font-size: 13px;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-    }
-
-    .btn.primary {
-        background: #2563EB;
-        border-color: #1D4ED8;
-        color: #FFFFFF;
-    }
-
-    .btn.danger {
-        background: #EF4444;
-        border-color: #DC2626;
-        color: #FFFFFF;
-    }
-
-    .btn:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-    }
-
-    /* ============================================================
-       Toast
-    ============================================================ */
-    .toast {
-        position: fixed;
-        right: 16px;
-        bottom: 16px;
-        width: 340px;
-        max-width: calc(100vw - 32px);
-        background: #111827;
-        color: white;
-        border-radius: 12px;
-        padding: 12px 14px;
-        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.25);
-        display: none;
-        z-index: 99999;
-    }
-
-    .toast.show {
-        display: block;
-    }
-
-    .toast-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        margin-bottom: 6px;
-    }
-
-    .toast-title {
-        font-weight: 900;
-        font-size: 13px;
-    }
-
-    .toast-msg {
-        font-size: 12px;
-        opacity: 0.9;
-        line-height: 1.35;
-    }
-
-    /* ============================================================
-       Modal
-    ============================================================ */
-    .modal-overlay {
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.55);
-        display: none;
-        align-items: center;
-        justify-content: center;
-        padding: 18px;
-        z-index: 999999;
-    }
-
-    .modal-overlay.show {
-        display: flex;
-    }
-
-    .modal {
-        width: 520px;
-        max-width: 100%;
-        background: white;
-        border-radius: 14px;
-        overflow: hidden;
-        border: 1px solid #E5E7EB;
-        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
-    }
-
-    .modal-header {
-        padding: 14px 16px;
-        border-bottom: 1px solid #E5E7EB;
-        font-weight: 900;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-    }
-
-    .modal-body {
-        padding: 16px;
-        color: #111827;
-        font-size: 13px;
-        line-height: 1.45;
-    }
-
-    .modal-actions {
-        padding: 14px 16px;
-        border-top: 1px solid #E5E7EB;
-        display: flex;
-        justify-content: flex-end;
-        gap: 10px;
-    }
-</style>
 
 <body>
-    <header class="page-header">
-        <h1>Đánh giá Shop - Shopee Mall Readiness</h1>
-        <p>Vui lòng hoàn tất thông tin shop và các tiêu chí Hard KO (bắt buộc). Nếu fail bất kỳ tiêu chí nào, hệ thống
-            sẽ chặn và không
-            chấm điểm MRSM.</p>
-    </header>
+    <div class="page-container">
+        <!-- Header -->
+        <div class="assessment-header">
+            <div class="header-content">
+                <h1>Hard KO (Tài liệu bắt buộc)</h1>
+                <p>Hoàn tất thông tin shop & các tiêu chí Hard KO. Fail bất kỳ tiêu chí nào → chặn và không chấm điểm
+                    MRSM.</p>
+            </div>
 
-    <div class="assessment-container">
-        <!-- Sidebar -->
-        <aside class="sidebar">
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">Checklist tiến độ</div>
-                    <span class="badge warning" id="progressBadge">Thiếu dữ liệu</span>
+            <!-- Progress -->
+            <div class="progress-indicator">
+                <div class="progress-step active">
+                    <div class="step-number">1</div>
+                    <span>Tài liệu</span>
                 </div>
-                <div class="card-body">
-                    <ul class="progress-list" id="progressList">
-                        <!-- JS render -->
+                <div class="progress-line"></div>
+                <div class="progress-step">
+                    <div class="step-number">2</div>
+                    <span>Chỉ số</span>
+                </div>
+                <div class="progress-line"></div>
+                <div class="progress-step">
+                    <div class="step-number">3</div>
+                    <span>Kết quả</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="assessment-content">
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <div class="info-panel">
+                    <h3>📋 Hướng dẫn</h3>
+                    <ul class="guide">
+                        <li>Điền đầy đủ <b>Thông tin shop</b> (6 trường bắt buộc).</li>
+                        <li>Upload 4 file PDF: <b>KO-01</b>, <b>KO-02</b>, <b>KO-03</b>, <b>KO-04</b> (tên file cần chứa
+                            keyword).</li>
+                        <li>Nhập <b>KO-05</b> (tháng hiệu lực giấy tờ) & chọn đúng <b>KO-06</b>.</li>
+                        <li><b>KO-07</b> cần: Domain hợp lệ + DNS A record + <b>website còn hiệu lực &gt; 6 tháng</b>.
+                        </li>
                     </ul>
+
+                    <div class="checklist-header">
+                        <strong style="font-size:13px;">Checklist tiến độ</strong>
+                        <span class="badge warning" id="progressBadge">Thiếu dữ liệu</span>
+                    </div>
+
+                    <div class="checklist">
+                        <ul id="progressList">
+                            <!-- JS render -->
+                        </ul>
+                    </div>
+
+                    <div class="progress-footer">
+                        <p id="progress-text">Theo dõi trạng thái checklist ở đây</p>
+                    </div>
+
+                    <div class="mini-actions">
+                        <button class="mini-btn" id="btnReset" type="button">↩️ Reset form</button>
+                        <button class="mini-btn danger" id="btnExport" type="button">⬇️ Export JSON</button>
+                    </div>
                 </div>
             </div>
 
-            <div class="card">
-                <div class="card-header">
-                    <div class="card-title">Hành động</div>
-                </div>
-                <div class="card-body">
-                    <div class="actions" style="justify-content:flex-start;">
-                        <button class="btn" id="btnReset" type="button">Reset form</button>
-                        <button class="btn danger" id="btnExport" type="button">Export JSON</button>
+            <!-- Main Form -->
+            <div class="main-form">
+                <!-- Shop info -->
+                <div class="form-card">
+                    <div class="card-header">
+                        <h2>🏪 Thông tin Shop (bắt buộc)</h2>
+                        <span class="badge warning" id="shopInfoBadge">Chưa đủ</span>
                     </div>
-                    <p class="help" style="margin-top:10px;">
-                        Export JSON để debug dữ liệu lưu vào sessionStorage/localStorage.
-                    </p>
-                </div>
-            </div>
-        </aside>
 
-        <!-- Main -->
-        <main class="main">
-            <!-- Shop info -->
-            <section class="card">
-                <div class="card-header">
-                    <div class="card-title">Thông tin Shop (bắt buộc)</div>
-                    <span class="badge warning" id="shopInfoBadge">Chưa đủ</span>
-                </div>
-                <div class="card-body">
-                    <div class="grid-2">
-                        <div class="field">
-                            <label for="shop_name">Tên Shop</label>
-                            <input id="shop_name" placeholder="Ví dụ: Supercheap Official Store" type="text" />
-                            <div class="help">Bắt buộc</div>
+                    <div class="card-body">
+                        <div class="metrics-description">
+                            <p>Vui lòng nhập đầy đủ thông tin shop. Các trường này dùng để xác thực điều kiện tham gia
+                                Shopee Mall.</p>
                         </div>
 
-                        <div class="field">
-                            <label for="shop_id">Shop ID</label>
-                            <input id="shop_id" placeholder="Ví dụ: 123456789" type="text" />
-                            <div class="help">Bắt buộc</div>
-                        </div>
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label for="shop_name">Tên Shop <span class="required">*</span></label>
+                                <input id="shop_name" type="text" placeholder="Ví dụ: Supercheap Official Store" />
+                                <div class="helper">Bắt buộc</div>
+                            </div>
 
-                        <div class="field">
-                            <label for="store_name">Tên cửa hàng/Doanh nghiệp</label>
-                            <input id="store_name" placeholder="Ví dụ: CÔNG TY TNHH ..." type="text" />
-                            <div class="help">Bắt buộc</div>
-                        </div>
+                            <div class="input-group">
+                                <label for="shop_id">Shop ID <span class="required">*</span></label>
+                                <input id="shop_id" type="text" placeholder="Ví dụ: 123456789" />
+                                <div class="helper">Bắt buộc</div>
+                            </div>
 
-                        <div class="field">
-                            <label for="category">Ngành hàng</label>
-                            <select id="category">
-                                <option value="">-- Chọn ngành hàng --</option>
-                                <option>Health & Beauty</option>
-                                <option>Fashion</option>
-                                <option>Home & Living</option>
-                                <option>Electronics</option>
-                                <option>Other</option>
-                            </select>
-                            <div class="help">Bắt buộc</div>
-                        </div>
+                            <div class="input-group">
+                                <label for="store_name">Tên cửa hàng/Doanh nghiệp <span
+                                        class="required">*</span></label>
+                                <input id="store_name" type="text" placeholder="Ví dụ: CÔNG TY TNHH ..." />
+                                <div class="helper">Bắt buộc</div>
+                            </div>
 
-                        <div class="field">
-                            <label for="brand">Thương hiệu</label>
-                            <input id="brand" placeholder="Ví dụ: Supercheap" type="text" />
-                            <div class="help">Bắt buộc</div>
-                        </div>
+                            <div class="input-group">
+                                <label for="category">Ngành hàng <span class="required">*</span></label>
+                                <select id="category">
+                                    <option value="">-- Chọn ngành hàng --</option>
+                                    <option>Health & Beauty</option>
+                                    <option>Fashion</option>
+                                    <option>Home & Living</option>
+                                    <option>Electronics</option>
+                                    <option>Other</option>
+                                </select>
+                                <div class="helper">Bắt buộc</div>
+                            </div>
 
-                        <div class="field">
-                            <label for="domain">Website/Domain</label>
-                            <input id="domain" placeholder="Ví dụ: supercheap.vn" type="text" />
-                            <div class="help">Bắt buộc • Hệ thống sẽ verify DNS A record</div>
+                            <div class="input-group">
+                                <label for="brand">Thương hiệu <span class="required">*</span></label>
+                                <input id="brand" type="text" placeholder="Ví dụ: Supercheap" />
+                                <div class="helper">Bắt buộc</div>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="domain">Website/Domain <span class="required">*</span></label>
+                                <input id="domain" type="text" placeholder="Ví dụ: supercheap.vn" />
+                                <div class="helper">Bắt buộc • Hệ thống sẽ verify DNS A record</div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </section>
 
-            <!-- Hard KO -->
-            <section class="card">
-                <div class="card-header">
-                    <div class="card-title">Hard KO (Bắt buộc)</div>
-                    <span class="badge warning" id="hardKoBadge">Chưa đủ</span>
-                </div>
-                <div class="card-body" style="display:flex;flex-direction:column;gap:12px;">
-                    <!-- KO-01 -->
-                    <div class="ko-block" data-rule="KO-01">
-                        <div class="ko-left">
-                            <div class="ko-title">
-                                <h3>Giấy phép kinh doanh (GPKD)</h3>
-                                <span class="id">KO-01</span>
-                            </div>
+                <!-- Hard KO -->
+                <div class="form-card">
+                    <div class="card-header">
+                        <h2>🧾 Hard KO (Bắt buộc)</h2>
+                        <span class="badge warning" id="hardKoBadge">Chưa đủ</span>
+                    </div>
 
-                            <div class="help">
-                                Upload file PDF GPKD. Tên file phải chứa keyword bắt buộc (xem hướng dẫn).
-                            </div>
+                    <div class="card-body">
+                        <div class="metrics-description">
+                            <p>Upload đúng hồ sơ/giấy tờ. Tên file PDF phải chứa keyword tương ứng để pass rule.</p>
+                        </div>
 
-                            <div class="uploader">
-                                <input accept="application/pdf" id="ko01_file" type="file" />
+                        <!-- KO-01 -->
+                        <div class="upload-row-enhanced" data-rule="KO-01">
+                            <div class="upload-section">
+                                <div class="upload-title">KO-01: Giấy phép kinh doanh (GPKD) <span
+                                        class="required">*</span></div>
+
+                                <div class="upload-area">
+                                    <input accept="application/pdf" id="ko01_file" type="file" />
+                                    <div class="upload-icon">📄</div>
+                                    <div class="upload-text">
+                                        <strong>Chọn file PDF để upload</strong>
+                                        <span>Keyword bắt buộc: <b>GPKD</b></span>
+                                    </div>
+                                </div>
+
                                 <div class="file-meta" id="ko01_meta">Chưa có file</div>
-                                <div class="file-hint">Định dạng: PDF • Keyword: <b>GPKD</b></div>
+                                <div class="input-with-status">
+                                    <span class="status-badge" id="ko01_status">CHƯA KIỂM TRA</span>
+                                </div>
                             </div>
 
-                            <div class="ko-status">
-                                <span class="label">Trạng thái:</span>
-                                <span class="pill" id="ko01_status">Chưa kiểm tra</span>
-                            </div>
-                        </div>
-
-                        <div class="ko-right">
                             <div class="guide-panel">
-                                <div class="guide-header">Hình ảnh mẫu</div>
+                                <h4>Hình ảnh mẫu</h4>
                                 <div class="guide-body">
                                     <div class="guide-image">
                                         <img src="./GPKD.jpg" alt="Mẫu GPKD" />
@@ -712,74 +1071,65 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- KO-02 -->
-                    <div class="ko-block" data-rule="KO-02">
-                        <div class="ko-left">
-                            <div class="ko-title">
-                                <h3>Đăng ký nhãn hiệu (ĐKNH)</h3>
-                                <span class="id">KO-02</span>
-                            </div>
+                        <!-- KO-02 -->
+                        <div class="upload-row-enhanced" data-rule="KO-02">
+                            <div class="upload-section">
+                                <div class="upload-title">KO-02: Đăng ký nhãn hiệu (ĐKNH) <span
+                                        class="required">*</span></div>
 
-                            <div class="help">
-                                Upload file PDF giấy chứng nhận đăng ký nhãn hiệu. Tên file phải chứa keyword bắt buộc.
-                            </div>
+                                <div class="upload-area">
+                                    <input accept="application/pdf" id="ko02_file" type="file" />
+                                    <div class="upload-icon">®️</div>
+                                    <div class="upload-text">
+                                        <strong>Chọn file PDF để upload</strong>
+                                        <span>Keyword bắt buộc: <b>ĐKNH</b></span>
+                                    </div>
+                                </div>
 
-                            <div class="uploader">
-                                <input accept="application/pdf" id="ko02_file" type="file" />
                                 <div class="file-meta" id="ko02_meta">Chưa có file</div>
-                                <div class="file-hint">Định dạng: PDF • Keyword: <b>ĐKNH</b></div>
+                                <div class="input-with-status">
+                                    <span class="status-badge" id="ko02_status">CHƯA KIỂM TRA</span>
+                                </div>
                             </div>
 
-                            <div class="ko-status">
-                                <span class="label">Trạng thái:</span>
-                                <span class="pill" id="ko02_status">Chưa kiểm tra</span>
-                            </div>
-                        </div>
-
-                        <div class="ko-right">
                             <div class="guide-panel">
-                                <div class="guide-header">Hình ảnh mẫu</div>
+                                <h4>Hình ảnh mẫu</h4>
                                 <div class="guide-body">
-                                    <div class="guide-image">
+                                    <div class="guide-image ko02">
                                         <img src="./ĐKNH.jpg" alt="Mẫu Đăng ký nhãn hiệu" />
                                     </div>
                                     <div class="guide-caption">
-                                        Gợi ý: Tên file nên chứa keyword “ĐKNH”. Upload đúng giấy chứng nhận nhãn hiệu.
+                                        Đã tối ưu preview để thấy phần tiêu đề/tên hồ sơ. Tên file nên chứa keyword
+                                        “ĐKNH”.
                                     </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- KO-03 -->
-                    <div class="ko-block" data-rule="KO-03">
-                        <div class="ko-left">
-                            <div class="ko-title">
-                                <h3>Ủy quyền sản phẩm (UQSP)</h3>
-                                <span class="id">KO-03</span>
-                            </div>
+                        <!-- KO-03 -->
+                        <div class="upload-row-enhanced" data-rule="KO-03">
+                            <div class="upload-section">
+                                <div class="upload-title">KO-03: Ủy quyền sản phẩm (UQSP) <span
+                                        class="required">*</span></div>
 
-                            <div class="help">
-                                Upload file PDF giấy ủy quyền (nếu có). Tên file phải chứa keyword bắt buộc.
-                            </div>
+                                <div class="upload-area">
+                                    <input accept="application/pdf" id="ko03_file" type="file" />
+                                    <div class="upload-icon">🧾</div>
+                                    <div class="upload-text">
+                                        <strong>Chọn file PDF để upload</strong>
+                                        <span>Keyword bắt buộc: <b>UQSP</b></span>
+                                    </div>
+                                </div>
 
-                            <div class="uploader">
-                                <input accept="application/pdf" id="ko03_file" type="file" />
                                 <div class="file-meta" id="ko03_meta">Chưa có file</div>
-                                <div class="file-hint">Định dạng: PDF • Keyword: <b>UQSP</b></div>
+                                <div class="input-with-status">
+                                    <span class="status-badge" id="ko03_status">CHƯA KIỂM TRA</span>
+                                </div>
                             </div>
 
-                            <div class="ko-status">
-                                <span class="label">Trạng thái:</span>
-                                <span class="pill" id="ko03_status">Chưa kiểm tra</span>
-                            </div>
-                        </div>
-
-                        <div class="ko-right">
                             <div class="guide-panel">
-                                <div class="guide-header">Hình ảnh mẫu</div>
+                                <h4>Hình ảnh mẫu</h4>
                                 <div class="guide-body">
                                     <div class="guide-image">
                                         <img src="./UQSP.jpg" alt="Mẫu Uỷ quyền sản phẩm" />
@@ -790,35 +1140,30 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- KO-04 -->
-                    <div class="ko-block" data-rule="KO-04">
-                        <div class="ko-left">
-                            <div class="ko-title">
-                                <h3>Bản công bố sản phẩm (CBSP)</h3>
-                                <span class="id">KO-04</span>
-                            </div>
+                        <!-- KO-04 -->
+                        <div class="upload-row-enhanced" data-rule="KO-04">
+                            <div class="upload-section">
+                                <div class="upload-title">KO-04: Bản công bố sản phẩm (CBSP) <span
+                                        class="required">*</span></div>
 
-                            <div class="help">
-                                Upload file PDF bản công bố sản phẩm. Tên file phải chứa keyword bắt buộc.
-                            </div>
+                                <div class="upload-area">
+                                    <input accept="application/pdf" id="ko04_file" type="file" />
+                                    <div class="upload-icon">📑</div>
+                                    <div class="upload-text">
+                                        <strong>Chọn file PDF để upload</strong>
+                                        <span>Keyword bắt buộc: <b>CBSP</b></span>
+                                    </div>
+                                </div>
 
-                            <div class="uploader">
-                                <input accept="application/pdf" id="ko04_file" type="file" />
                                 <div class="file-meta" id="ko04_meta">Chưa có file</div>
-                                <div class="file-hint">Định dạng: PDF • Keyword: <b>CBSP</b></div>
+                                <div class="input-with-status">
+                                    <span class="status-badge" id="ko04_status">CHƯA KIỂM TRA</span>
+                                </div>
                             </div>
 
-                            <div class="ko-status">
-                                <span class="label">Trạng thái:</span>
-                                <span class="pill" id="ko04_status">Chưa kiểm tra</span>
-                            </div>
-                        </div>
-
-                        <div class="ko-right">
                             <div class="guide-panel">
-                                <div class="guide-header">Hình ảnh mẫu</div>
+                                <h4>Hình ảnh mẫu</h4>
                                 <div class="guide-body">
                                     <div class="guide-image">
                                         <img src="./CBSP.png" alt="Mẫu Công bố sản phẩm" />
@@ -829,35 +1174,20 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- KO-05 -->
-                    <div class="ko-block" data-rule="KO-05">
-                        <div class="ko-left">
-                            <div class="ko-title">
-                                <h3>Thời hạn hiệu lực giấy tờ > 6 tháng</h3>
-                                <span class="id">KO-05</span>
+                        <!-- KO-05 -->
+                        <div class="upload-row-enhanced" data-rule="KO-05">
+                            <div class="upload-section">
+                                <div class="upload-title">KO-05: Thời hạn hiệu lực giấy tờ &gt; 6 tháng <span
+                                        class="required">*</span></div>
+                                <div class="input-with-status">
+                                    <input id="ko05_months" min="0" type="number" placeholder="Ví dụ: 12" />
+                                    <span class="status-badge" id="ko05_status">CHƯA KIỂM TRA</span>
+                                </div>
+                                <div class="helper">Điều kiện: &gt; 6 tháng</div>
                             </div>
-
-                            <div class="help">
-                                Nhập số tháng hiệu lực còn lại của giấy tờ. Nếu ≤ 6 tháng sẽ fail.
-                            </div>
-
-                            <div class="field" style="max-width:260px;">
-                                <label for="ko05_months">Số tháng hiệu lực còn lại</label>
-                                <input id="ko05_months" min="0" placeholder="Ví dụ: 12" type="number" />
-                                <div class="help">Bắt buộc • Điều kiện: &gt; 6 tháng</div>
-                            </div>
-
-                            <div class="ko-status">
-                                <span class="label">Trạng thái:</span>
-                                <span class="pill" id="ko05_status">Chưa kiểm tra</span>
-                            </div>
-                        </div>
-
-                        <div class="ko-right">
                             <div class="guide-panel">
-                                <div class="guide-header">Hướng dẫn</div>
+                                <h4>Hướng dẫn</h4>
                                 <div class="guide-body">
                                     <div class="guide-caption">
                                         Nhập số tháng hiệu lực còn lại. Nếu bạn nhập 6 hoặc thấp hơn sẽ fail Hard KO.
@@ -865,39 +1195,24 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- KO-06 -->
-                    <div class="ko-block" data-rule="KO-06">
-                        <div class="ko-left">
-                            <div class="ko-title">
-                                <h3>Không vi phạm nghiêm trọng (Severe Violation)</h3>
-                                <span class="id">KO-06</span>
+                        <!-- KO-06 -->
+                        <div class="upload-row-enhanced" data-rule="KO-06">
+                            <div class="upload-section">
+                                <div class="upload-title">KO-06: Không vi phạm nghiêm trọng (Severe Violation) <span
+                                        class="required">*</span></div>
+                                <div class="input-with-status">
+                                    <select id="ko06_ok">
+                                        <option value="">-- Chọn --</option>
+                                        <option value="Có">Có</option>
+                                        <option value="Không">Không</option>
+                                    </select>
+                                    <span class="status-badge" id="ko06_status">CHƯA KIỂM TRA</span>
+                                </div>
+                                <div class="helper">Điều kiện: chọn “Có”</div>
                             </div>
-
-                            <div class="help">
-                                Xác nhận shop không có vi phạm nghiêm trọng. Bắt buộc chọn “Có”.
-                            </div>
-
-                            <div class="field" style="max-width:260px;">
-                                <label for="ko06_ok">Shop không có vi phạm nghiêm trọng?</label>
-                                <select id="ko06_ok">
-                                    <option value="">-- Chọn --</option>
-                                    <option value="Có">Có</option>
-                                    <option value="Không">Không</option>
-                                </select>
-                                <div class="help">Bắt buộc • Điều kiện: chọn “Có”</div>
-                            </div>
-
-                            <div class="ko-status">
-                                <span class="label">Trạng thái:</span>
-                                <span class="pill" id="ko06_status">Chưa kiểm tra</span>
-                            </div>
-                        </div>
-
-                        <div class="ko-right">
                             <div class="guide-panel">
-                                <div class="guide-header">Hướng dẫn</div>
+                                <h4>Hướng dẫn</h4>
                                 <div class="guide-body">
                                     <div class="guide-caption">
                                         Nếu shop có severe violation → fail Hard KO và không được chấm điểm MRSM.
@@ -905,89 +1220,82 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- KO-07 -->
-                    <div class="ko-block" data-rule="KO-07">
-                        <div class="ko-left">
-                            <div class="ko-title">
-                                <h3>Website hợp lệ & còn hiệu lực &gt; 6 tháng</h3>
-                                <span class="id">KO-07</span>
+                        <!-- KO-07 -->
+                        <div class="upload-row-enhanced" data-rule="KO-07">
+                            <div class="upload-section">
+                                <div class="upload-title">KO-07: Domain hợp lệ + DNS A record + Website còn hiệu lực
+                                    &gt; 6 tháng <span class="required">*</span></div>
+
+                                <div class="input-with-status" style="margin-bottom:10px;">
+                                    <input id="ko07_months" min="0" type="number"
+                                        placeholder="Số tháng hiệu lực của Website (ví dụ: 12)" />
+                                    <span class="status-badge" id="ko07_status">CHƯA KIỂM TRA</span>
+                                </div>
+
+                                <div class="helper">
+                                    Hệ thống sẽ normalize domain (xóa http/https, www, path…) và verify DNS A record.
+                                    Đồng thời yêu cầu website còn hiệu lực &gt; 6 tháng.
+                                </div>
                             </div>
 
-                            <div class="help">
-                                Điều kiện PASS: Domain đúng định dạng + có DNS A record + hiệu lực website &gt; 6 tháng.
-                            </div>
-
-                            <!-- ✅ NEW FIELD: Website validity months -->
-                            <div class="field" style="max-width:320px;">
-                                <label for="ko07_months">Số tháng hiệu lực của Website</label>
-                                <input id="ko07_months" min="0" placeholder="Ví dụ: 12" type="number" />
-                                <div class="help">Bắt buộc • Điều kiện: &gt; 6 tháng</div>
-                            </div>
-
-                            <div class="ko-status">
-                                <span class="label">Trạng thái:</span>
-                                <span class="pill" id="ko07_status">Chưa kiểm tra</span>
-                            </div>
-                        </div>
-
-                        <div class="ko-right">
                             <div class="guide-panel">
-                                <div class="guide-header">Hướng dẫn tra cứu thời gian hiệu lực</div>
+                                <h4>Hướng dẫn tìm thời gian hiệu lực</h4>
                                 <div class="guide-body">
-                                    <div class="guide-caption" style="margin-bottom:10px;">
-                                        B1: Truy cập trang <b>https://www.matbao.net/</b><br />
-                                        B2: Tìm kiếm bằng tên miền của shop (bỏ https, chỉ để định dạng
-                                        <b>xxx.vn</b>)<br />
-                                        B3: Bấm <b>"Xem thông tin miền"</b> để xem thời gian còn hiệu lực
-                                    </div>
                                     <div class="guide-caption">
-                                        Gợi ý: Domain phải có DNS A record và hiệu lực &gt; 6 tháng mới PASS KO-07.
+                                        <b>B1:</b> Truy cập trang <b>matbao.net</b><br />
+                                        <b>B2:</b> Tìm kiếm bằng tên miền của shop (bỏ https, chỉ để dạng
+                                        <b>xxx.vn</b>)<br />
+                                        <b>B3:</b> Bấm <b>“Xem thông tin miền”</b> và lấy số tháng còn hiệu lực.
                                     </div>
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Final status -->
+                        <div class="final-status-box" style="margin-top: 12px;">
+                            <div class="final-msg" id="finalMsg">Chưa kiểm tra Hard KO</div>
+                        </div>
                     </div>
 
                     <!-- Actions -->
-                    <div class="actions">
-                        <button class="btn" id="btnValidate" type="button">Kiểm tra Hard KO</button>
-                        <button class="btn primary" id="btnGoSoftKo" type="button">Tiếp tục (Soft KO)</button>
+                    <div class="form-actions">
+                        <button class="reset-button" id="btnValidate" type="button">✅ Kiểm tra Hard KO</button>
+                        <button class="submit-button" id="btnGoSoftKo" type="button">➡️ Tiếp tục (Soft KO)</button>
                     </div>
                 </div>
-            </section>
-        </main>
-    </div>
-
-    <!-- Toast -->
-    <div class="toast" id="toast">
-        <div class="toast-header">
-            <div class="toast-title" id="toastTitle">Thông báo</div>
-            <button class="btn" id="toastClose" style="height:28px;padding:0 10px;border-radius:8px;">Đóng</button>
-        </div>
-        <div class="toast-msg" id="toastMsg"></div>
-    </div>
-
-    <!-- Modal -->
-    <div class="modal-overlay" id="modalOverlay">
-        <div class="modal">
-            <div class="modal-header">
-                <div id="modalTitle">Thông báo</div>
-                <button class="btn" id="modalClose" style="height:28px;padding:0 10px;border-radius:8px;">Đóng</button>
-            </div>
-            <div class="modal-body" id="modalBody"></div>
-            <div class="modal-actions" id="modalActions">
-                <button class="btn primary" id="modalOk">OK</button>
             </div>
         </div>
-    </div>
 
-    <!-- Scripts -->
-    <script src="assessment-id.js"></script>
-    <script src="mrsm_config.js"></script>
-    <script src="gate-guard.js"></script>
-    <script src="script_kogate.js"></script>
+        <!-- Toast -->
+        <div class="toast" id="toast">
+            <div class="toast-header">
+                <div class="toast-title" id="toastTitle">Thông báo</div>
+                <button class="mini-close" id="toastClose" type="button">Đóng</button>
+            </div>
+            <div class="toast-msg" id="toastMsg"></div>
+        </div>
+
+        <!-- Modal -->
+        <div class="modal-overlay" id="modalOverlay">
+            <div class="modal">
+                <div class="modal-header">
+                    <div id="modalTitle">Thông báo</div>
+                    <button class="modal-btn" id="modalClose" type="button" style="padding:8px 12px;">Đóng</button>
+                </div>
+                <div class="modal-body" id="modalBody"></div>
+                <div class="modal-actions" id="modalActions">
+                    <button class="modal-btn primary" id="modalOk" type="button">OK</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scripts -->
+        <script src="assessment-id.js"></script>
+        <script src="mrsm_config.js"></script>
+        <script src="gate-guard.js"></script>
+        <script src="script_kogate.js"></script>
+    </div>
 </body>
 
 </html>
