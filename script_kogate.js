@@ -227,65 +227,76 @@ function validateKO06() {
   setStatusUI("status-ko06", isValid, isValid ? "" : "(Chỉ 'Có' mới đạt)");
 }
 
-async function validateKO07() {
-  const input = document.getElementById("ko07");
-  const badge = document.getElementById("status-ko07");
-  if (!input || !badge) return;
+async function validateKO07_Composed() {
+  const domainEl = document.getElementById("domain");
+  const monthsEl = document.getElementById("ko07_months");
+  const statusEl = document.getElementById("ko07_status");
+  if (!domainEl || !monthsEl || !statusEl) return;
 
-  const rawInput = input.value.trim();
+  const rawDomain = (domainEl.value || "").trim();
+  const rawMonths = (monthsEl.value || "").trim();
+  const months = Number(rawMonths);
 
-  // Empty => hide badge & mark fail
-  if (rawInput === "") {
-    badge.style.display = "none";
-    validationState.ko07 = false;
-    setFieldFixState("ko07", true);
-    updateProgressChecklist();
-    evaluateFinalGate();
+  // Missing
+  if (!rawDomain || rawMonths === "") {
+    statusEl.textContent = "Chưa kiểm tra";
+    statusEl.className = "pill";
+    // tuỳ code bạn: set validationState.ko07 = false;
     return;
   }
 
-  const domain = normalizeDomain(rawInput);
-
-  // Format check
-  if (!isValidDomainFormat(domain)) {
-    badge.textContent = "❌ Không hợp lệ: sai định dạng domain";
-    badge.className = "status-badge invalid";
-    badge.style.display = "inline-block";
-    validationState.ko07 = false;
-    setFieldFixState("ko07", true);
-    updateProgressChecklist();
-    evaluateFinalGate();
+  // months check
+  if (Number.isNaN(months) || months <= 6) {
+    statusEl.textContent = "❌ FAIL (Hiệu lực website phải > 6 tháng)";
+    statusEl.className = "pill fail";
+    // validationState.ko07 = false;
     return;
   }
 
-  // Checking state
-  badge.textContent = "⏳ Đang kiểm tra DNS...";
-  badge.className = "status-badge checking";
-  badge.style.display = "inline-block";
-  validationState.ko07 = false;
-  setFieldFixState("ko07", true);
-  updateProgressChecklist();
-  evaluateFinalGate();
+  // domain normalize + format
+  const domain = rawDomain
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .split("/")[0]
+    .split("?")[0]
+    .split("#")[0];
 
-  // DNS check
-  const dnsOk = await checkDomainDNS(domain);
-
-  if (dnsOk) {
-    badge.textContent = `✅ Hợp lệ: ${domain}`;
-    badge.className = "status-badge valid";
-    validationState.ko07 = true;
-    setFieldFixState("ko07", false);
-  } else {
-    badge.textContent = "❌ Không hợp lệ: domain không tồn tại DNS A record";
-    badge.className = "status-badge invalid";
-    validationState.ko07 = false;
-    setFieldFixState("ko07", true);
+  const domainRegex = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/;
+  if (!domainRegex.test(domain)) {
+    statusEl.textContent = "❌ FAIL (Sai định dạng domain)";
+    statusEl.className = "pill fail";
+    // validationState.ko07 = false;
+    return;
   }
 
-  badge.style.display = "inline-block";
-  updateProgressChecklist();
-  evaluateFinalGate();
+  // DNS A record (Google DoH)
+  statusEl.textContent = "⏳ Đang kiểm tra DNS...";
+  statusEl.className = "pill";
+
+  let dnsOk = false;
+  try {
+    const url = `https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=A`;
+    const res = await fetch(url);
+    const data = await res.json();
+    dnsOk = data?.Status === 0 && Array.isArray(data?.Answer) && data.Answer.length > 0;
+  } catch (_) {
+    dnsOk = false;
+  }
+
+  if (!dnsOk) {
+    statusEl.textContent = "❌ FAIL (Domain không có DNS A record)";
+    statusEl.className = "pill fail";
+    // validationState.ko07 = false;
+    return;
+  }
+
+  // PASS
+  statusEl.textContent = `✅ PASS (${domain} • ${months} tháng)`;
+  statusEl.className = "pill pass";
+  // validationState.ko07 = true;
 }
+
 
 /* =========================================
    4) UX: PROGRESS + GATE + RESET + NAV
@@ -692,8 +703,11 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("ko06")?.addEventListener("change", validateKO06);
 
   // KO-07 domain (debounce + async DNS)
-  const debouncedKO07 = debounce(() => validateKO07(), 800);
-  document.getElementById("ko07")?.addEventListener("input", debouncedKO07);
+  const debouncedKO07 = debounce(() => validateKO07_Composed(), 800);
+
+  document.getElementById("domain")?.addEventListener("input", () => debouncedKO07());
+  document.getElementById("ko07_months")?.addEventListener("input", () => validateKO07_Composed());
+
 
   // Buttons
   document.getElementById("nextBtn")?.addEventListener("click", handleNavigation);
