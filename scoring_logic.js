@@ -2,17 +2,6 @@
  * ============================================================
  * SMRSS – MRSM KPI SCORING CORE LOGIC (WSM v2) — CLEAN v2
  * ============================================================
- * Fixes:
- * 1) SSOT registry: hoist BACKUP_KPI_ORDER + declare KPI_WEIGHT_SUM (no implicit globals).
- * 2) Normalize weights -> weight_final sums to 1 (stable totalScore 0–100).
- * 3) BR-02 threshold t1=5000 (followers) even when CUSTOM.
- * 4) CAT-02 rule: +50 if Lifestyle uploaded, +50 if White-bg passes (draft-evidence fallback).
- * 5) Group names normalized to EN: Operation / Brand / Category / Scale (RESULTS/DASHBOARD compatible).
- * 6) Remove stray text / naming inconsistencies.
- * 7) ✅ FIX: Save normalized weights (weight_final) to both breakdown & kpis in assessment_result
- * 8) ✅ FIX: Ensure gate_status is properly saved as "PASS" when soft gate passes
- */
-
 // =========================
 // Backup registry (hoisted)
 // =========================
@@ -850,3 +839,4 @@ document.addEventListener("DOMContentLoaded", () => {
 
     bindEvents();
 });
+
