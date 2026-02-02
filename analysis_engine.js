@@ -1,15 +1,25 @@
 /**
  * analysis_engine.global.js
- * ------------------------------------------------------------
+ * ============================================================
  * Pure functions only: NO DOM, NO localStorage
  * Static Hosting friendly:
  * - No `export` (ESM). Expose via window.AnalysisEngine
+ * 
+ * ✅ ENHANCEMENTS:
+ * - Normalize group names consistently (VN → EN)
+ * - Normalize weights to sum=1 (stable scoring)
+ * - Detect and classify gate vs scoring KPIs
+ * - Build top-N fixlist with impact-gap sorting
  */
 (function (global) {
     "use strict";
 
     const DEFAULT_GROUP_ORDER = ["Operation", "Brand", "Category", "Scale"];
 
+    /**
+     * Get group from rule ID based on prefix
+     * Handles: OP-, CS-, PEN-, CO- (Operation), BR- (Brand), CAT- (Category), SC- (Scale)
+     */
     function defaultGroupOf(ruleId = "") {
         const id = String(ruleId).toUpperCase();
         if (id.startsWith("OP-") || id.startsWith("CS-") || id.startsWith("PEN-") || id.startsWith("CO-")) return "Operation";
@@ -19,35 +29,41 @@
         return "Operation";
     }
 
-    // ✅ VN/EN -> canonical EN group
+    /**
+     * ✅ VN/EN -> canonical EN group
+     * Handles both Vietnamese and English group names, fuzzy matching
+     */
     function normalizeGroupName(name) {
         const s = String(name || "").trim();
         if (!s) return "";
 
         const upper = s.toUpperCase();
 
-        // canonical EN
+        // canonical EN (priority 1)
         if (upper === "OPERATION") return "Operation";
         if (upper === "BRAND") return "Brand";
         if (upper === "CATEGORY") return "Category";
         if (upper === "SCALE") return "Scale";
 
-        // VN strict
+        // VN strict matches (priority 2)
         if (upper === "VẬN HÀNH" || upper === "VAN HANH") return "Operation";
         if (upper === "THƯƠNG HIỆU" || upper === "THUONG HIEU") return "Brand";
         if (upper === "DANH MỤC" || upper === "DANH MUC") return "Category";
         if (upper === "QUY MÔ" || upper === "QUY MO") return "Scale";
 
-        // VN fuzzy
+        // VN fuzzy matches (priority 3)
         if (upper.includes("VẬN") || upper.includes("VAN")) return "Operation";
         if (upper.includes("THƯƠNG") || upper.includes("THUONG")) return "Brand";
         if (upper.includes("DANH")) return "Category";
         if (upper.includes("QUY")) return "Scale";
 
-        return s; // unknown, keep
+        return s; // unknown, keep as-is
     }
 
-    // ✅ normalize gate status (PASS/G0/G1/G2/UNKNOWN)
+    /**
+     * ✅ Normalize gate status
+     * Maps various status strings to standard enum: PASS / G0 / G1 / G2 / UNKNOWN
+     */
     function normalizeGateStatus(raw) {
         const s = String(raw || "").trim().toUpperCase();
         if (!s) return "UNKNOWN";
@@ -58,6 +74,11 @@
         return s;
     }
 
+    /**
+     * ✅ Normalize KPI list
+     * - Ensure all required fields (rule_id, score, weight_final, group)
+     * - Normalize weights to sum=1 (for stable ImpactGap calculation)
+     */
     function normalizeKpis(rawKpis, opts = {}) {
         const groupOf = typeof opts.groupOf === "function" ? opts.groupOf : defaultGroupOf;
 
@@ -92,6 +113,11 @@
         return kpis;
     }
 
+    /**
+     * ✅ Compute impact gap for each KPI
+     * ImpactGap = (100 - score) × weight_final
+     * Sorted by impact (descending)
+     */
     function computeImpactGap(kpis, opts = {}) {
         const norm = normalizeKpis(kpis, opts);
         return norm
@@ -106,6 +132,11 @@
             .sort((a, b) => b.impact - a.impact);
     }
 
+    /**
+     * ✅ Compute group-level breakdown
+     * For each group: aggregate score & contribution
+     * score = sum(kpi.score × weight) / sum(weight)
+     */
     function computeBreakdown(kpis, opts = {}) {
         const groupOrder = Array.isArray(opts.groupOrder) ? opts.groupOrder : DEFAULT_GROUP_ORDER;
         const groupOf = typeof opts.groupOf === "function" ? opts.groupOf : defaultGroupOf;
@@ -134,18 +165,29 @@
         return groups;
     }
 
+    /**
+     * ✅ Build top-N fixlist
+     * Returns top-N KPIs by impact gap
+     */
     function buildTopFixlist(kpis, opts = {}) {
         const topN = Number(opts.topN ?? 5) || 5;
         return computeImpactGap(kpis, opts).slice(0, topN);
     }
 
     /**
-     * ✅ NEW: normalize ANY payload schema to a renderable shape
+     * ✅ NEW: Normalize ANY payload schema to a renderable shape
      * Accepts:
      * - {kpis: [...]}
      * - {breakdown: [...]}
      * - {mrsm: { breakdown: [...] }}
      * - local record / firestore record
+     * 
+     * Returns normalized shape with:
+     * - kpis: normalized KPI list
+     * - groups: group breakdown
+     * - fixlist: top-N by impact gap
+     * - mrsm: { final_score, tier }
+     * - gate: { status }
      */
     function normalizeAssessmentPayload(payload, opts = {}) {
         const p = payload && typeof payload === "object" ? payload : {};
@@ -188,6 +230,6 @@
         computeImpactGap,
         computeBreakdown,
         buildTopFixlist,
-        normalizeAssessmentPayload, // ✅ new
+        normalizeAssessmentPayload,
     };
 })(typeof window !== "undefined" ? window : globalThis);
