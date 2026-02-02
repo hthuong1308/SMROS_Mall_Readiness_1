@@ -1071,7 +1071,24 @@
   overflow-wrap: break-word;
   min-width: 0;
 }
+.sidebar{
+  max-height: none !important;
+  overflow: visible !important;
+}
 
+#kpiChecklist{
+  max-height: calc(100vh - 420px);
+  overflow-y: auto;
+  padding-right: 6px; /* chừa chỗ scrollbar */
+}
+
+@media (max-width: 1024px){
+  #kpiChecklist{
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
 </style>
 </head>
 
@@ -1702,3 +1719,4 @@
 </body>
 
 </html>
+
