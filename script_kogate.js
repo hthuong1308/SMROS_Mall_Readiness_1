@@ -1,721 +1,819 @@
 /******************************************************************************
- * KO GATE VALIDATION SCRIPT – SMROS / MRSM (HARD KO)
- *
+ * script_kogate.js (SYNCED WITH NEW KO_GATE.html)
+ * ------------------------------------------------
  * HARD KO (Page 1):
  *  - KO-01/02/03/04: PDF + filename contains keyword
  *  - KO-05: months validity > 6
  *  - KO-06: no severe violation => must be "Có"
- *  - KO-07: domain format valid + DNS A record via Google DoH
+ *  - KO-07: domain format valid + DNS A record + website validity months > 6
  *
- * TOTAL FIELDS TRACKED:
+ * Tracks:
  *  6 shop fields + 7 KO fields = 13
  ******************************************************************************/
 
-/* =========================================
-   1) CONFIG & GLOBAL STATE
-   ========================================= */
+(() => {
+  "use strict";
 
-const SCHEMA_VERSION = 1;
-const SCHEMA_ID = "fs_assessment_doc_v1";
+  const SCHEMA_VERSION = 1;
+  const SCHEMA_ID = "fs_assessment_doc_v1";
 
-const FILE_KEYWORDS = {
-  ko01: ["giấy phép kinh doanh", "gpkd"],
-  ko02: ["nhãn hiệu", "đăng ký nhãn", "quy tắc sử dụng"],
-  ko03: ["ủy quyền", "nguồn gốc", "phân phối"],
-  ko04: ["giấy công bố", "hồ sơ công bố", "công bố sản phẩm"]
-};
+  // ====== HTML ID MAP (must match KO_GATE.html) ======
+  const IDS = {
+    // shop info
+    shop_name: "shop_name",
+    shop_id: "shop_id",
+    store_name: "store_name",
+    category: "category",
+    brand: "brand",
+    domain: "domain",
 
-const validationState = {
-  // Shop info (6)
-  companyName: false,
-  businessLicenseNo: false,
-  brandName: false,
-  shopId: false,
-  userId: false,
-  username: false,
+    // file inputs + meta + status
+    ko01_file: "ko01_file",
+    ko02_file: "ko02_file",
+    ko03_file: "ko03_file",
+    ko04_file: "ko04_file",
+    ko01_meta: "ko01_meta",
+    ko02_meta: "ko02_meta",
+    ko03_meta: "ko03_meta",
+    ko04_meta: "ko04_meta",
+    ko01_status: "ko01_status",
+    ko02_status: "ko02_status",
+    ko03_status: "ko03_status",
+    ko04_status: "ko04_status",
 
-  // KO (7)
-  ko01: false,
-  ko02: false,
-  ko03: false,
-  ko04: false,
-  ko05: false, // months validity
-  ko06: false, // severe violation (select)
-  ko07: false  // domain
-};
+    // extra KO
+    ko05_months: "ko05_months",
+    ko06_ok: "ko06_ok",
+    ko07_months: "ko07_months",
+    ko05_status: "ko05_status",
+    ko06_status: "ko06_status",
+    ko07_status: "ko07_status",
 
-let redirectTimer = { tick: null, done: null };
+    // badges + checklist
+    shopInfoBadge: "shopInfoBadge",
+    hardKoBadge: "hardKoBadge",
+    progressBadge: "progressBadge",
+    progressList: "progressList",
+    progressText: "progress-text",
 
-function clearRedirectTimers() {
-  if (redirectTimer?.tick) {
-    clearTimeout(redirectTimer.tick);
-    redirectTimer.tick = null;
-  }
-  if (redirectTimer?.done) {
-    clearTimeout(redirectTimer.done);
-    redirectTimer.done = null;
-  }
-}
+    // final message
+    finalMsg: "finalMsg",
 
+    // buttons
+    btnValidate: "btnValidate",
+    btnGoSoftKo: "btnGoSoftKo",
+    btnReset: "btnReset",
+    btnExport: "btnExport",
 
-
-/* =========================================
-   2) HELPERS (UTILITY FUNCTIONS)
-   ========================================= */
-
-function debounce(func, wait) {
-  let timeout;
-  return function (...args) {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
+    // modal + toast (existing in HTML)
+    modalOverlay: "modalOverlay",
+    modalTitle: "modalTitle",
+    modalBody: "modalBody",
+    modalOk: "modalOk",
+    modalClose: "modalClose",
+    toast: "toast",
+    toastTitle: "toastTitle",
+    toastMsg: "toastMsg",
+    toastClose: "toastClose",
   };
-}
 
-function normText(s) {
-  return (s || "").toLowerCase().trim();
-}
+  // Keywords required in filename (case-insensitive)
+  const FILE_KEYWORDS = {
+    [IDS.ko01_file]: ["gpkd", "giấy phép", "giay phep", "kinh doanh"],
+    [IDS.ko02_file]: ["đknh", "dknh", "nhãn hiệu", "nhan hieu", "đăng ký nhãn", "dang ky nhan"],
+    [IDS.ko03_file]: ["uqsp", "ủy quyền", "uy quyen", "phân phối", "phan phoi"],
+    [IDS.ko04_file]: ["cbsp", "công bố", "cong bo", "công bố sản phẩm", "cong bo san pham"],
+  };
 
-function normalizeDomain(input) {
-  let domain = (input || "").trim().toLowerCase();
-  domain = domain.replace(/^https?:\/\//, "");
-  domain = domain.replace(/^www\./, "");
-  domain = domain.split("/")[0].split("?")[0].split("#")[0];
-  return domain;
-}
+  // Validation state: 13 fields
+  const validationState = {
+    // shop info (6)
+    [IDS.shop_name]: false,
+    [IDS.shop_id]: false,
+    [IDS.store_name]: false,
+    [IDS.category]: false,
+    [IDS.brand]: false,
+    [IDS.domain]: false, // only "non-empty" for shop info; KO-07 does deeper check
 
-function isValidDomainFormat(domain) {
-  const domainRegex = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/;
-  return domainRegex.test(domain);
-}
+    // KO (7)
+    ko01: false,
+    ko02: false,
+    ko03: false,
+    ko04: false,
+    ko05: false,
+    ko06: false,
+    ko07: false, // composed: domain format + DNS + months > 6
+  };
 
-async function checkDomainDNS(domain) {
-  try {
-    const url = `https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=A`;
-    const response = await fetch(url);
-    const data = await response.json();
-    return data?.Status === 0 && Array.isArray(data?.Answer) && data.Answer.length > 0;
-  } catch (error) {
-    console.error("DNS check error:", error);
-    return false;
-  }
-}
+  let redirectTimer = { tick: null, done: null };
 
-function setStatusUI(elementId, isPass, message = "") {
-  const el = document.getElementById(elementId);
-  if (!el) return;
-
-  el.style.display = "inline-block";
-
-  if (isPass) {
-    el.innerHTML = `✅ PASS ${message}`.trim();
-    el.className = "status-badge pass";
-  } else {
-    el.innerHTML = `❌ FAIL ${message}`.trim();
-    el.className = "status-badge fail";
+  function $(id) {
+    return document.getElementById(id);
   }
 
-  updateProgressChecklist();
-  evaluateFinalGate();
-}
-
-
-/* =========================================
-   2) UX HELPERS (Highlight missing fields)
-   ========================================= */
-
-function setFieldFixState(fieldId, needFix) {
-  const el = document.getElementById(fieldId);
-  if (!el) return;
-
-  const targets = [el];
-  // Try to also mark a container for better visibility
-  const container = el.closest(".metric-card, .field, .form-group, .input-group, .upload-field, .upload-box");
-  if (container && container !== el) targets.push(container);
-
-  targets.forEach(t => {
-    if (!t) return;
-    if (needFix) t.classList.add("ko-need-fix");
-    else t.classList.remove("ko-need-fix");
-  });
-}
-
-function highlightInvalidFields() {
-  const keys = Object.keys(validationState);
-  keys.forEach(k => setFieldFixState(k, false));
-  keys.filter(k => validationState[k] !== true).forEach(k => setFieldFixState(k, true));
-}
-
-/* =========================================
-   3) VALIDATION (CORE RULES)
-   ========================================= */
-
-function validateShopInfo(fieldId) {
-  const input = document.getElementById(fieldId);
-  const isValid = !!input && input.value.trim() !== "";
-  validationState[fieldId] = isValid;
-  setFieldFixState(fieldId, !isValid);
-
-  updateProgressChecklist();
-  evaluateFinalGate();
-}
-
-function validateFileField(fileId) {
-  const fileInput = document.getElementById(fileId);
-  const file = fileInput?.files?.[0];
-  const statusId = `status-${fileId}`;
-  const fileNameEl = document.getElementById(`${fileId}-name`);
-  const keywords = FILE_KEYWORDS[fileId] || [];
-
-  // 1) Required
-  if (!file) {
-    setStatusUI(statusId, false, "(Chưa chọn file)");
-    validationState[fileId] = false;
-    setFieldFixState(fileId, true);
-    if (fileNameEl) fileNameEl.textContent = "Chưa chọn file";
-    return;
+  function debounce(func, wait) {
+    let timeout;
+    return function (...args) {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func(...args), wait);
+    };
   }
 
-  // Show filename
-  if (fileNameEl) fileNameEl.textContent = file.name;
-
-  // 2) PDF only
-  const lowerName = file.name.toLowerCase();
-  const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
-  if (!isPdf) {
-    setStatusUI(statusId, false, "(Chỉ chấp nhận file PDF)");
-    validationState[fileId] = false;
-    setFieldFixState(fileId, true);
-    fileInput.value = "";
-    if (fileNameEl) fileNameEl.textContent = "Chưa chọn file";
-    return;
+  function normText(s) {
+    return String(s || "").toLowerCase().trim();
   }
 
-  // 3) Keyword check
-  const fn = normText(file.name);
-  const hasKey = keywords.some(k => fn.includes(normText(k)));
-
-  if (!hasKey) {
-    setStatusUI(statusId, false, `(Thiếu từ khóa: ${keywords[0] || "keyword"})`);
-    validationState[fileId] = false;
-    setFieldFixState(fileId, true);
-    return;
+  function normalizeDomain(input) {
+    let domain = String(input || "").trim().toLowerCase();
+    domain = domain.replace(/^https?:\/\//, "");
+    domain = domain.replace(/^www\./, "");
+    domain = domain.split("/")[0].split("?")[0].split("#")[0];
+    return domain;
   }
 
-  // Pass
-  validationState[fileId] = true;
-  setFieldFixState(fileId, false);
-  setStatusUI(statusId, true);
-}
-
-function validateKO05() {
-  const input = document.getElementById("ko05");
-  const raw = input ? input.value : "";
-  const months = Number(raw);
-
-  const isValid = raw !== "" && !Number.isNaN(months) && months > 6;
-  validationState.ko05 = isValid;
-  setFieldFixState("ko05", !isValid);
-  setStatusUI("status-ko05", isValid, isValid ? "" : "(Phải > 6 tháng)");
-}
-
-function validateKO06() {
-  const select = document.getElementById("ko06");
-  const isValid = !!select && select.value === "Có";
-
-  validationState.ko06 = isValid;
-  setFieldFixState("ko06", !isValid);
-  setStatusUI("status-ko06", isValid, isValid ? "" : "(Chỉ 'Có' mới đạt)");
-}
-
-async function validateKO07_Composed() {
-  const domainEl = document.getElementById("domain");
-  const monthsEl = document.getElementById("ko07_months");
-  const statusEl = document.getElementById("ko07_status");
-  if (!domainEl || !monthsEl || !statusEl) return;
-
-  const rawDomain = (domainEl.value || "").trim();
-  const rawMonths = (monthsEl.value || "").trim();
-  const months = Number(rawMonths);
-
-  // Missing
-  if (!rawDomain || rawMonths === "") {
-    statusEl.textContent = "Chưa kiểm tra";
-    statusEl.className = "pill";
-    // tuỳ code bạn: set validationState.ko07 = false;
-    return;
+  function isValidDomainFormat(domain) {
+    const domainRegex = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/;
+    return domainRegex.test(domain);
   }
 
-  // months check
-  if (Number.isNaN(months) || months <= 6) {
-    statusEl.textContent = "❌ FAIL (Hiệu lực website phải > 6 tháng)";
-    statusEl.className = "pill fail";
-    // validationState.ko07 = false;
-    return;
-  }
-
-  // domain normalize + format
-  const domain = rawDomain
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/^www\./, "")
-    .split("/")[0]
-    .split("?")[0]
-    .split("#")[0];
-
-  const domainRegex = /^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$/;
-  if (!domainRegex.test(domain)) {
-    statusEl.textContent = "❌ FAIL (Sai định dạng domain)";
-    statusEl.className = "pill fail";
-    // validationState.ko07 = false;
-    return;
-  }
-
-  // DNS A record (Google DoH)
-  statusEl.textContent = "⏳ Đang kiểm tra DNS...";
-  statusEl.className = "pill";
-
-  let dnsOk = false;
-  try {
-    const url = `https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=A`;
-    const res = await fetch(url);
-    const data = await res.json();
-    dnsOk = data?.Status === 0 && Array.isArray(data?.Answer) && data.Answer.length > 0;
-  } catch (_) {
-    dnsOk = false;
-  }
-
-  if (!dnsOk) {
-    statusEl.textContent = "❌ FAIL (Domain không có DNS A record)";
-    statusEl.className = "pill fail";
-    // validationState.ko07 = false;
-    return;
-  }
-
-  // PASS
-  statusEl.textContent = `✅ PASS (${domain} • ${months} tháng)`;
-  statusEl.className = "pill pass";
-  // validationState.ko07 = true;
-}
-
-
-/* =========================================
-   4) UX: PROGRESS + GATE + RESET + NAV
-   ========================================= */
-
-function updateProgressChecklist() {
-  const total = Object.keys(validationState).length; // 13
-  const completed = Object.values(validationState).filter(v => v === true).length;
-
-  // Total progress
-  const progressEl = document.getElementById("progress-text");
-  if (progressEl) progressEl.innerText = `Hoàn thành hồ sơ: ${completed}/${total}`;
-
-  // Group 1: Shop info (6 fields)
-  const checkShop = document.getElementById("check-shop");
-  const shopCompleted = [
-    validationState.companyName,
-    validationState.businessLicenseNo,
-    validationState.brandName,
-    validationState.shopId,
-    validationState.userId,
-    validationState.username
-  ].every(v => v === true);
-
-  if (checkShop) {
-    if (shopCompleted) {
-      checkShop.classList.add("completed");
-      checkShop.querySelector(".check-icon").textContent = "✓";
-    } else {
-      checkShop.classList.remove("completed");
-      checkShop.querySelector(".check-icon").textContent = "○";
+  async function checkDomainDNS(domain) {
+    try {
+      const url = `https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=A`;
+      const response = await fetch(url);
+      const data = await response.json();
+      return data?.Status === 0 && Array.isArray(data?.Answer) && data.Answer.length > 0;
+    } catch (e) {
+      console.warn("[KO-07] DNS check error:", e);
+      return false;
     }
   }
 
-  // Group 2: Files (4)
-  const checkFiles = document.getElementById("check-files");
-  const filesCompleted = [validationState.ko01, validationState.ko02, validationState.ko03, validationState.ko04]
-    .filter(v => v).length;
-
-  if (checkFiles) {
-    const fileText = checkFiles.querySelector("span:last-child");
-    if (fileText) fileText.textContent = `Tài liệu KO (${filesCompleted}/4)`;
-
-    if (filesCompleted === 4) {
-      checkFiles.classList.add("completed");
-      checkFiles.querySelector(".check-icon").textContent = "✓";
-    } else {
-      checkFiles.classList.remove("completed");
-      checkFiles.querySelector(".check-icon").textContent = "○";
+  function clearRedirectTimers() {
+    if (redirectTimer?.tick) {
+      clearTimeout(redirectTimer.tick);
+      redirectTimer.tick = null;
+    }
+    if (redirectTimer?.done) {
+      clearTimeout(redirectTimer.done);
+      redirectTimer.done = null;
     }
   }
 
-  // Group 3: Extra info (3): ko05, ko06, ko07
-  const checkMetrics = document.getElementById("check-metrics");
-  const metricsCompleted = [validationState.ko05, validationState.ko06, validationState.ko07].filter(v => v).length;
+  // ===== UI helpers =====
 
-  if (checkMetrics) {
-    const metricText = checkMetrics.querySelector("span:last-child");
-    if (metricText) metricText.textContent = `Thông tin bổ sung (${metricsCompleted}/3)`;
-
-    if (metricsCompleted === 3) {
-      checkMetrics.classList.add("completed");
-      checkMetrics.querySelector(".check-icon").textContent = "✓";
-    } else {
-      checkMetrics.classList.remove("completed");
-      checkMetrics.querySelector(".check-icon").textContent = "○";
-    }
-  }
-}
-
-function focusFirstInvalidField() {
-  const firstInvalidKey = Object.keys(validationState).find(k => validationState[k] !== true);
-  if (!firstInvalidKey) return;
-
-  const el = document.getElementById(firstInvalidKey);
-  if (!el) return;
-
-  try {
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    if (typeof el.focus === "function") el.focus({ preventScroll: true });
-  } catch (_) {
-    // no-op
-  }
-
-  // nhẹ nhàng nhắc người dùng (không phụ thuộc CSS)
-  el.classList.add("ko-need-fix");
-  window.setTimeout(() => el.classList.remove("ko-need-fix"), 800);
-}
-
-function evaluateFinalGate() {
-  const isAllValid = Object.values(validationState).every(v => v === true);
-  const nextBtn = document.getElementById("nextBtn");
-  const finalMsg = document.getElementById("final-ko-status");
-  const finalContainer = document.getElementById("final-status-container");
-
-  if (nextBtn) {
-    nextBtn.disabled = !isAllValid;
-    isAllValid ? nextBtn.classList.remove("disabled") : nextBtn.classList.add("disabled");
-  }
-
-  // Only update final message if container is visible (after click)
-  if (finalMsg && finalContainer && finalContainer.style.display !== "none") {
-    if (isAllValid) {
-      finalMsg.innerHTML = "✅ HỒ SƠ HỢP LỆ - CỔNG ĐÃ MỞ";
-      finalMsg.className = "final-msg pass";
-    } else {
-      finalMsg.innerHTML = "❌ HỒ SƠ CHƯA ĐẠT - VUI LÒNG HOÀN THIỆN CÁC MỤC ĐỎ";
-      finalMsg.className = "final-msg fail";
-    }
-  }
-}
-
-function resetForm() {
-  // 🧹 DỪNG countdown nếu đang chạy
-  clearRedirectTimers();
-  // Ẩn popup thành công nếu đang mở
-  const modal = document.getElementById("successModal");
-  if (modal) modal.style.display = "none";
-
-  // Disable nút Kiểm tra (sẽ được bật lại khi đủ điều kiện)
-  const nextBtn = document.getElementById("nextBtn");
-  if (nextBtn) nextBtn.disabled = true;
-
-  /* ===== CLEAR INPUTS ===== */
-
-  // Shop + extra fields
-  [
-    "companyName",
-    "businessLicenseNo",
-    "brandName",
-    "shopId",
-    "userId",
-    "username",
-    "ko05",
-    "ko06",
-    "ko07"
-  ].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = "";
-  });
-
-  // File inputs
-  ["ko01", "ko02", "ko03", "ko04"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = "";
-  });
-
-  // Reset file name labels
-  ["ko01-name", "ko02-name", "ko03-name", "ko04-name"].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = "Chưa chọn file";
-  });
-
-  /* ===== RESET STATE ===== */
-
-  Object.keys(validationState).forEach(k => {
-    validationState[k] = false;
-    setFieldFixState(k, false);
-  });
-
-  // Reset status badges
-  [
-    "status-ko01",
-    "status-ko02",
-    "status-ko03",
-    "status-ko04",
-    "status-ko05",
-    "status-ko06",
-    "status-ko07"
-  ].forEach(id => {
-    const el = document.getElementById(id);
+  function setFieldFixState(fieldId, needFix) {
+    const el = $(fieldId);
     if (!el) return;
-    el.style.display = "none";
-    el.textContent = "CHƯA KIỂM TRA";
-    el.className = "status-badge";
-  });
+    const container = el.closest(".input-group, .upload-row-enhanced, .upload-section, .form-card, .field");
+    const target = container || el;
+    if (needFix) target.classList.add("ko-need-fix");
+    else target.classList.remove("ko-need-fix");
+  }
 
-  // Ẩn box kết quả cuối
-  const finalContainer = document.getElementById("final-status-container");
-  if (finalContainer) finalContainer.style.display = "none";
+  function setStatusBadge(statusId, isPass, message = "") {
+    const el = $(statusId);
+    if (!el) return;
 
-  // Cập nhật lại UI
-  updateProgressChecklist();
-  evaluateFinalGate();
-}
+    const msg = message ? ` ${message}` : "";
+    if (isPass === null) {
+      el.textContent = "CHƯA KIỂM TRA";
+      el.className = "status-badge";
+      return;
+    }
 
+    el.textContent = (isPass ? "✅ PASS" : "❌ FAIL") + msg;
+    el.className = "status-badge " + (isPass ? "valid" : "invalid");
+  }
 
+  function setBadge(id, type, text) {
+    const el = $(id);
+    if (!el) return;
+    el.className = `badge ${type}`;
+    el.textContent = text;
+  }
 
+  function showToast(type, title, message, ms = 2600) {
+    const toast = $(IDS.toast);
+    if (!toast) return;
 
-/* =========================================
-   3.5) HARD KO EVIDENCE CACHE (assessment_id + TTL)
-   - Mirror Hard KO evidence từ sessionStorage -> localStorage theo assessment_id
-   - Giúp reproducibility/traceability khi mở tab mới hoặc reload
-   - TTL để tránh reuse quá lâu (fail-closed nếu hết hạn)
-   ========================================= */
-function cacheHardEvidenceLocal(assessmentId, hardObj) {
-  try {
-    if (!assessmentId || !hardObj) return false;
+    const titleEl = $(IDS.toastTitle);
+    const msgEl = $(IDS.toastMsg);
 
-    const prefix = (window.MRSM_CONFIG && window.MRSM_CONFIG.HARD_GATE_CACHE_PREFIX) || "hard_ko_cache:";
-    const ttlHours = Number((window.MRSM_CONFIG && window.MRSM_CONFIG.HARD_GATE_CACHE_TTL_HOURS) || 24) || 24;
-    const key = `${prefix}${assessmentId}`;
+    if (titleEl) titleEl.textContent = title || "Thông báo";
+    if (msgEl) msgEl.textContent = message || "";
 
-    const now = Date.now();
-    const payload = {
-      schema_version: "hard_ko_cache_v1",
-      assessment_id: assessmentId,
-      hard: hardObj,
-      cachedAt: new Date(now).toISOString(),
-      expiresAt: new Date(now + ttlHours * 60 * 60 * 1000).toISOString()
+    toast.classList.add("show");
+    // type optional, if you want color variants later
+
+    window.setTimeout(() => toast.classList.remove("show"), ms);
+  }
+
+  function showModal(title, html) {
+    const overlay = $(IDS.modalOverlay);
+    const titleEl = $(IDS.modalTitle);
+    const bodyEl = $(IDS.modalBody);
+    if (!overlay || !titleEl || !bodyEl) return;
+
+    titleEl.textContent = title || "Thông báo";
+    bodyEl.innerHTML = html || "";
+    overlay.classList.add("show");
+  }
+
+  function hideModal() {
+    const overlay = $(IDS.modalOverlay);
+    if (overlay) overlay.classList.remove("show");
+  }
+
+  function focusFirstInvalid() {
+    const first = Object.keys(validationState).find(k => validationState[k] !== true);
+    if (!first) return;
+
+    // map state key -> element id
+    let targetId = first;
+    if (first === "ko01") targetId = IDS.ko01_file;
+    if (first === "ko02") targetId = IDS.ko02_file;
+    if (first === "ko03") targetId = IDS.ko03_file;
+    if (first === "ko04") targetId = IDS.ko04_file;
+    if (first === "ko05") targetId = IDS.ko05_months;
+    if (first === "ko06") targetId = IDS.ko06_ok;
+    if (first === "ko07") targetId = IDS.ko07_months;
+
+    const el = $(targetId);
+    if (!el) return;
+    try {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (typeof el.focus === "function") el.focus({ preventScroll: true });
+    } catch (_) { }
+    setFieldFixState(targetId, true);
+    window.setTimeout(() => setFieldFixState(targetId, false), 900);
+  }
+
+  // ===== Validation =====
+
+  function validateShopField(id) {
+    const el = $(id);
+    const ok = !!el && String(el.value || "").trim() !== "";
+    validationState[id] = ok;
+    setFieldFixState(id, !ok);
+    return ok;
+  }
+
+  function validateFile(fileInputId, metaId, statusId, stateKey) {
+    const input = $(fileInputId);
+    const metaEl = $(metaId);
+    const file = input?.files?.[0];
+
+    if (!file) {
+      if (metaEl) metaEl.textContent = "Chưa có file";
+      setStatusBadge(statusId, false, "(Chưa chọn file)");
+      validationState[stateKey] = false;
+      setFieldFixState(fileInputId, true);
+      return false;
+    }
+
+    const lowerName = String(file.name || "").toLowerCase();
+    const isPdf = file.type === "application/pdf" || lowerName.endsWith(".pdf");
+    if (!isPdf) {
+      if (metaEl) metaEl.textContent = "Chưa có file";
+      setStatusBadge(statusId, false, "(Chỉ chấp nhận PDF)");
+      validationState[stateKey] = false;
+      setFieldFixState(fileInputId, true);
+      // reset invalid selection
+      try { input.value = ""; } catch (_) { }
+      return false;
+    }
+
+    const keys = FILE_KEYWORDS[fileInputId] || [];
+    const fn = normText(file.name);
+    const hasKey = keys.some(k => fn.includes(normText(k)));
+    if (!hasKey) {
+      if (metaEl) metaEl.textContent = file.name;
+      setStatusBadge(statusId, false, `(Thiếu keyword)`);
+      validationState[stateKey] = false;
+      setFieldFixState(fileInputId, true);
+      return false;
+    }
+
+    if (metaEl) metaEl.textContent = file.name;
+    setStatusBadge(statusId, true);
+    validationState[stateKey] = true;
+    setFieldFixState(fileInputId, false);
+    return true;
+  }
+
+  function validateKO05() {
+    const el = $(IDS.ko05_months);
+    const raw = String(el?.value ?? "").trim();
+    const months = Number(raw);
+    const ok = raw !== "" && !Number.isNaN(months) && months > 6;
+
+    validationState.ko05 = ok;
+    setFieldFixState(IDS.ko05_months, !ok);
+    setStatusBadge(IDS.ko05_status, ok, ok ? "" : "(Phải > 6 tháng)");
+    return ok;
+  }
+
+  function validateKO06() {
+    const el = $(IDS.ko06_ok);
+    const ok = !!el && String(el.value) === "Có";
+
+    validationState.ko06 = ok;
+    setFieldFixState(IDS.ko06_ok, !ok);
+    setStatusBadge(IDS.ko06_status, ok, ok ? "" : "(Chỉ 'Có' mới đạt)");
+    return ok;
+  }
+
+  async function validateKO07_Composed({ showLoading = false } = {}) {
+    const domainEl = $(IDS.domain);
+    const monthsEl = $(IDS.ko07_months);
+
+    const rawDomain = String(domainEl?.value ?? "").trim();
+    const rawMonths = String(monthsEl?.value ?? "").trim();
+    const months = Number(rawMonths);
+
+    // Missing
+    if (!rawDomain || rawMonths === "") {
+      validationState.ko07 = false;
+      setFieldFixState(IDS.domain, !rawDomain);
+      setFieldFixState(IDS.ko07_months, rawMonths === "");
+      setStatusBadge(IDS.ko07_status, false, "(Thiếu dữ liệu)");
+      return false;
+    }
+
+    // months check
+    if (Number.isNaN(months) || months <= 6) {
+      validationState.ko07 = false;
+      setFieldFixState(IDS.ko07_months, true);
+      setStatusBadge(IDS.ko07_status, false, "(Hiệu lực website > 6 tháng)");
+      return false;
+    } else {
+      setFieldFixState(IDS.ko07_months, false);
+    }
+
+    // domain normalize + format
+    const domain = normalizeDomain(rawDomain);
+    if (!isValidDomainFormat(domain)) {
+      validationState.ko07 = false;
+      setFieldFixState(IDS.domain, true);
+      setStatusBadge(IDS.ko07_status, false, "(Sai định dạng domain)");
+      return false;
+    }
+    setFieldFixState(IDS.domain, false);
+
+    // DNS A record
+    if (showLoading) setStatusBadge(IDS.ko07_status, null);
+    const statusEl = $(IDS.ko07_status);
+    if (statusEl) {
+      statusEl.textContent = "⏳ Đang kiểm tra DNS...";
+      statusEl.className = "status-badge";
+    }
+
+    const dnsOk = await checkDomainDNS(domain);
+    if (!dnsOk) {
+      validationState.ko07 = false;
+      setStatusBadge(IDS.ko07_status, false, "(Không có DNS A record)");
+      return false;
+    }
+
+    validationState.ko07 = true;
+    setStatusBadge(IDS.ko07_status, true, `(${domain} • ${months} tháng)`);
+    return true;
+  }
+
+  function computeBadgesAndChecklist() {
+    const total = Object.keys(validationState).length; // 13
+    const completed = Object.values(validationState).filter(v => v === true).length;
+
+    // progress text
+    const pt = $(IDS.progressText);
+    if (pt) pt.textContent = `Hoàn thành hồ sơ: ${completed}/${total}`;
+
+    // progress badge
+    if (completed === total) setBadge(IDS.progressBadge, "success", "Đã đủ dữ liệu");
+    else setBadge(IDS.progressBadge, "warning", `Thiếu ${total - completed} mục`);
+
+    // shop badge
+    const shopOK = [
+      validationState[IDS.shop_name],
+      validationState[IDS.shop_id],
+      validationState[IDS.store_name],
+      validationState[IDS.category],
+      validationState[IDS.brand],
+      validationState[IDS.domain],
+    ].every(Boolean);
+
+    if (shopOK) setBadge(IDS.shopInfoBadge, "success", "Đã đủ");
+    else setBadge(IDS.shopInfoBadge, "warning", "Chưa đủ");
+
+    // hard ko badge
+    const hardOK = [validationState.ko01, validationState.ko02, validationState.ko03, validationState.ko04, validationState.ko05, validationState.ko06, validationState.ko07].every(Boolean);
+    if (hardOK) setBadge(IDS.hardKoBadge, "success", "Đạt");
+    else setBadge(IDS.hardKoBadge, "warning", "Chưa đủ");
+
+    // render checklist items (13)
+    const list = $(IDS.progressList);
+    if (!list) return;
+
+    const items = [
+      { key: IDS.shop_name, label: "Tên Shop" },
+      { key: IDS.shop_id, label: "Shop ID" },
+      { key: IDS.store_name, label: "Tên DN/Cửa hàng" },
+      { key: IDS.category, label: "Ngành hàng" },
+      { key: IDS.brand, label: "Thương hiệu" },
+      { key: IDS.domain, label: "Website/Domain" },
+
+      { key: "ko01", label: "KO-01: GPKD (PDF + keyword)" },
+      { key: "ko02", label: "KO-02: ĐKNH (PDF + keyword)" },
+      { key: "ko03", label: "KO-03: UQSP (PDF + keyword)" },
+      { key: "ko04", label: "KO-04: CBSP (PDF + keyword)" },
+
+      { key: "ko05", label: "KO-05: Hiệu lực giấy tờ > 6 tháng" },
+      { key: "ko06", label: "KO-06: Không vi phạm nghiêm trọng (Có)" },
+      { key: "ko07", label: "KO-07: DNS A record + Website > 6 tháng" },
+    ];
+
+    list.innerHTML = items.map(it => {
+      const ok = validationState[it.key] === true;
+      const cls = ok ? "progress-item pass" : "progress-item fail";
+      const sub = ok ? "Đạt" : "Chưa đạt";
+      return `
+        <li class="${cls}">
+          <div class="progress-left">
+            <span class="dot"></span>
+            <div class="progress-text">
+              <strong>${it.label}</strong>
+              <span>${sub}</span>
+            </div>
+          </div>
+        </li>
+      `;
+    }).join("");
+  }
+
+  function setFinalMsg(pass) {
+    const el = $(IDS.finalMsg);
+    if (!el) return;
+    if (pass) {
+      el.textContent = "✅ HỒ SƠ HỢP LỆ - CỔNG ĐÃ MỞ";
+      el.className = "final-msg pass";
+    } else {
+      el.textContent = "❌ HỒ SƠ CHƯA ĐẠT - VUI LÒNG HOÀN THIỆN CÁC MỤC THIẾU";
+      el.className = "final-msg fail";
+    }
+  }
+
+  async function validateAll({ showToastOnFail = false } = {}) {
+    // shop info
+    validateShopField(IDS.shop_name);
+    validateShopField(IDS.shop_id);
+    validateShopField(IDS.store_name);
+    validateShopField(IDS.category);
+    validateShopField(IDS.brand);
+    validateShopField(IDS.domain);
+
+    // files
+    validateFile(IDS.ko01_file, IDS.ko01_meta, IDS.ko01_status, "ko01");
+    validateFile(IDS.ko02_file, IDS.ko02_meta, IDS.ko02_status, "ko02");
+    validateFile(IDS.ko03_file, IDS.ko03_meta, IDS.ko03_status, "ko03");
+    validateFile(IDS.ko04_file, IDS.ko04_meta, IDS.ko04_status, "ko04");
+
+    // extra KO
+    validateKO05();
+    validateKO06();
+    await validateKO07_Composed({ showLoading: true });
+
+    computeBadgesAndChecklist();
+
+    const allOk = Object.values(validationState).every(v => v === true);
+    setFinalMsg(allOk);
+
+    if (!allOk && showToastOnFail) {
+      showToast("error", "Chưa đạt Hard KO", "Vui lòng hoàn thiện các mục đang FAIL trong checklist.");
+    }
+
+    return allOk;
+  }
+
+  // ===== Persistence / navigation (keep your original gate logic) =====
+
+  function cacheHardEvidenceLocal(assessmentId, hardObj) {
+    try {
+      if (!assessmentId || !hardObj) return false;
+      const prefix = (window.MRSM_CONFIG && window.MRSM_CONFIG.HARD_GATE_CACHE_PREFIX) || "hard_ko_cache:";
+      const ttlHours = Number((window.MRSM_CONFIG && window.MRSM_CONFIG.HARD_GATE_CACHE_TTL_HOURS) || 24) || 24;
+      const key = `${prefix}${assessmentId}`;
+
+      const now = Date.now();
+      const payload = {
+        schema_version: "hard_ko_cache_v1",
+        assessment_id: assessmentId,
+        hard: hardObj,
+        cachedAt: new Date(now).toISOString(),
+        expiresAt: new Date(now + ttlHours * 60 * 60 * 1000).toISOString()
+      };
+
+      localStorage.setItem(key, JSON.stringify(payload));
+      return true;
+    } catch (e) {
+      console.warn("[KO_GATE] cacheHardEvidenceLocal failed:", e);
+      return false;
+    }
+  }
+
+  function buildExportData() {
+    const nowIso = new Date().toISOString();
+    const pickFileMeta = (id) => {
+      const f = $(id)?.files?.[0];
+      if (!f) return { name: "", type: "", size: null, uploadedAt: null, lastModified: null };
+      const lm = typeof f.lastModified === "number" ? f.lastModified : null;
+      const uploadedAt = lm ? new Date(lm).toISOString() : nowIso;
+      return {
+        name: f.name || "",
+        type: f.type || "",
+        size: typeof f.size === "number" ? f.size : null,
+        lastModified: lm,
+        uploadedAt
+      };
     };
 
-    localStorage.setItem(key, JSON.stringify(payload));
-    return true;
-  } catch (e) {
-    console.warn("[KO_GATE] cacheHardEvidenceLocal failed:", e);
-    return false;
+    return {
+      shopInfo: {
+        shop_name: $(IDS.shop_name)?.value || "",
+        shop_id: $(IDS.shop_id)?.value || "",
+        store_name: $(IDS.store_name)?.value || "",
+        category: $(IDS.category)?.value || "",
+        brand: $(IDS.brand)?.value || "",
+        domain: $(IDS.domain)?.value || "",
+      },
+      metrics: {
+        ko05_months: $(IDS.ko05_months)?.value || "",
+        ko06_ok: $(IDS.ko06_ok)?.value || "",
+        ko07_months: $(IDS.ko07_months)?.value || "",
+        ko07_domain: $(IDS.domain)?.value || "",
+      },
+      files: {
+        ko01: $(IDS.ko01_file)?.files?.[0]?.name || "",
+        ko02: $(IDS.ko02_file)?.files?.[0]?.name || "",
+        ko03: $(IDS.ko03_file)?.files?.[0]?.name || "",
+        ko04: $(IDS.ko04_file)?.files?.[0]?.name || "",
+      },
+      files_meta: {
+        ko01: pickFileMeta(IDS.ko01_file),
+        ko02: pickFileMeta(IDS.ko02_file),
+        ko03: pickFileMeta(IDS.ko03_file),
+        ko04: pickFileMeta(IDS.ko04_file),
+      },
+      verifiedAt: new Date().toISOString()
+    };
   }
-}
 
-function handleNavigation() {
-  const finalContainer = document.getElementById("final-status-container");
-  if (finalContainer) finalContainer.style.display = "block";
+  async function goNextIfPass() {
+    const pass = await validateAll({ showToastOnFail: true });
+    if (!pass) {
+      // highlight invalids
+      Object.keys(validationState).forEach(k => {
+        if (validationState[k] !== true) {
+          if (k === "ko01") setFieldFixState(IDS.ko01_file, true);
+          else if (k === "ko02") setFieldFixState(IDS.ko02_file, true);
+          else if (k === "ko03") setFieldFixState(IDS.ko03_file, true);
+          else if (k === "ko04") setFieldFixState(IDS.ko04_file, true);
+          else if (k === "ko05") setFieldFixState(IDS.ko05_months, true);
+          else if (k === "ko06") setFieldFixState(IDS.ko06_ok, true);
+          else if (k === "ko07") setFieldFixState(IDS.ko07_months, true);
+          else setFieldFixState(k, true);
+        }
+      });
+      focusFirstInvalid();
+      return;
+    }
 
-  evaluateFinalGate();
+    // PASS HARD KO => Save evidence + init soft gate
+    const exportData = buildExportData();
 
-  const isAllValid = Object.values(validationState).every(v => v === true);
+    const urlNow = new URL(window.location.href);
+    const aid =
+      urlNow.searchParams.get("assessment_id") ||
+      sessionStorage.getItem("current_assessment_id") ||
+      `A_${Date.now()}`;
 
-  // ❌ Chưa đạt → giữ hành vi cũ
-  if (!isAllValid) {
-    highlightInvalidFields();
-    focusFirstInvalidField();
-    return;
-  }
-  if (finalContainer) finalContainer.style.display = "none";
+    sessionStorage.setItem("current_assessment_id", aid);
+    sessionStorage.setItem("validatedHardKO", JSON.stringify(exportData));
+    cacheHardEvidenceLocal(aid, exportData);
 
-  /* ===== PASS HARD KO ===== */
+    // init soft gate 7 days
+    const verifiedAt = new Date(exportData.verifiedAt);
+    const deadlineAt = new Date(verifiedAt.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-  // 1. Lưu sessionStorage (giữ nguyên logic)
-  const exportData = {
-    shopInfo: {
-      companyName: document.getElementById("companyName")?.value || "",
-      businessLicenseNo: document.getElementById("businessLicenseNo")?.value || "",
-      brandName: document.getElementById("brandName")?.value || "",
-      shopId: document.getElementById("shopId")?.value || "",
-      userId: document.getElementById("userId")?.value || "",
-      username: document.getElementById("username")?.value || ""
-    },
-    metrics: {
-      ko05_months: document.getElementById("ko05")?.value || "",
-      ko06_noSevereViolation: document.getElementById("ko06")?.value || "",
-      ko07_domain: document.getElementById("ko07")?.value || ""
-    },
-    files: {
-      ko01: document.getElementById("ko01")?.files?.[0]?.name || "",
-      ko02: document.getElementById("ko02")?.files?.[0]?.name || "",
-      ko03: document.getElementById("ko03")?.files?.[0]?.name || "",
-      ko04: document.getElementById("ko04")?.files?.[0]?.name || ""
-    },
-    files_meta: (function () {
-      const nowIso = new Date().toISOString();
-      const pick = (id) => {
-        const f = document.getElementById(id)?.files?.[0];
-        if (!f) return { name: "", type: "", size: null, uploadedAt: null, lastModified: null };
-        const lm = typeof f.lastModified === "number" ? f.lastModified : null;
-        const uploadedAt = lm ? new Date(lm).toISOString() : nowIso;
-        return {
-          name: f.name || "",
-          type: f.type || "",
-          size: typeof f.size === "number" ? f.size : null,
-          lastModified: lm,
-          uploadedAt
-        };
-      };
-      return { ko01: pick("ko01"), ko02: pick("ko02"), ko03: pick("ko03"), ko04: pick("ko04") };
-    })(),
-    verifiedAt: new Date().toISOString()
-  };
-
-  // ✅ Assessment identity (SSOT)
-  const urlNow = new URL(window.location.href);
-  const aid =
-    urlNow.searchParams.get("assessment_id") ||
-    sessionStorage.getItem("current_assessment_id") ||
-    `A_${Date.now()}`;
-  sessionStorage.setItem("current_assessment_id", aid);
-
-  sessionStorage.setItem("validatedHardKO", JSON.stringify(exportData));
-  // Mirror evidence to localStorage (assessment_id + TTL)
-  cacheHardEvidenceLocal(aid, exportData);
-
-  // ===== INIT SOFT KO GATE (7-day window) =====
-  const verifiedAt = new Date(exportData.verifiedAt);
-  const deadlineAt = new Date(verifiedAt.getTime() + 7 * 24 * 60 * 60 * 1000);
-
-  const softGateInit = {
-    schema_version: SCHEMA_VERSION,
-    schema_id: SCHEMA_ID,
-    verified_at: exportData.verifiedAt,
-    gate_status: "G1",
-    soft: {
-      deadline_at: deadlineAt.toISOString(),
-      items: {
-        "OP-04": { passed: false, note: "", fixed_at: null },
-        "PEN-01": { passed: false, note: "", fixed_at: null },
-        "CO-01": { passed: false, note: "", fixed_at: null },
-        "SC-02": { passed: false, note: "", fixed_at: null }
+    const softGateInit = {
+      schema_version: SCHEMA_VERSION,
+      schema_id: SCHEMA_ID,
+      verified_at: exportData.verifiedAt,
+      gate_status: "G1",
+      soft: {
+        deadline_at: deadlineAt.toISOString(),
+        items: {
+          "OP-04": { passed: false, note: "", fixed_at: null },
+          "PEN-01": { passed: false, note: "", fixed_at: null },
+          "CO-01": { passed: false, note: "", fixed_at: null },
+          "SC-02": { passed: false, note: "", fixed_at: null }
+        }
       }
-    }
-  };
+    };
+    localStorage.setItem("soft_ko_gate", JSON.stringify(softGateInit));
 
-  localStorage.setItem("soft_ko_gate", JSON.stringify(softGateInit));
+    // show modal + countdown (fallback if modal missing)
+    let seconds = 5;
+    const html = `Hồ sơ Hard KO đã đạt.<br/><br/>Tự chuyển sang Soft KO sau <b><span id="__ko_redirect">${seconds}</span>s</b>...`;
+    showModal("✅ HỒ SƠ HỢP LỆ", html);
 
-  // 2. Hiện popup HỒ SƠ HỢP LỆ
-  const modal = document.getElementById("successModal");
-  const countdownEl = document.getElementById("redirectCountdown");
+    clearRedirectTimers();
 
-  if (modal) modal.style.display = "flex";
+    const tick = () => {
+      seconds -= 1;
+      const el = document.getElementById("__ko_redirect");
+      if (el) el.textContent = String(Math.max(seconds, 0));
+      if (seconds > 0) redirectTimer.tick = window.setTimeout(tick, 1000);
+    };
+    redirectTimer.tick = window.setTimeout(tick, 1000);
 
-  //  KHÓA NÚT, KHÔNG CHO BẤM NHIỀU LẦN
-  const nextBtn = document.getElementById("nextBtn");
-  if (nextBtn) nextBtn.disabled = true;
+    redirectTimer.done = window.setTimeout(() => {
+      window.location.href = `SOFT_KO.html?assessment_id=${encodeURIComponent(aid)}`;
+    }, 5000);
+  }
 
-  // Nếu có timer cũ thì xóa
-  clearRedirectTimers();
+  function downloadJSON(filename, obj) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
-  // 3. Đếm ngược 10s → tự chuyển trang
-  let seconds = 10;
-  if (countdownEl) countdownEl.textContent = seconds;
+  function exportDebugJSON() {
+    const data = {
+      validatedHardKO: safeParse(sessionStorage.getItem("validatedHardKO")),
+      soft_ko_gate: safeParse(localStorage.getItem("soft_ko_gate")),
+      current_assessment_id: sessionStorage.getItem("current_assessment_id") || "",
+      computedAt: new Date().toISOString()
+    };
+    downloadJSON("KO_GATE_debug.json", data);
+    showToast("success", "Export thành công", "Đã tải KO_GATE_debug.json");
+  }
 
-  const tick = () => {
-    seconds -= 1;
-    if (countdownEl) countdownEl.textContent = Math.max(seconds, 0);
-    if (seconds > 0) {
-      redirectTimer.tick = window.setTimeout(tick, 1000);
-    }
-  };
+  function safeParse(raw) {
+    try { return raw ? JSON.parse(raw) : null; } catch { return null; }
+  }
 
-  // countdown tick (setTimeout chain)
-  redirectTimer.tick = window.setTimeout(tick, 1000);
+  function resetForm() {
+    clearRedirectTimers();
+    hideModal();
 
-  // redirect (single setTimeout)
-  redirectTimer.done = window.setTimeout(() => {
-    window.location.href = `SOFT_KO.html?assessment_id=${encodeURIComponent(aid)}`;
-  }, 10 * 1000);
-}
-function restoreHardKOFromSession() {
-  const raw = sessionStorage.getItem("validatedHardKO");
-  if (!raw) return;
+    // clear fields
+    [IDS.shop_name, IDS.shop_id, IDS.store_name, IDS.brand, IDS.domain].forEach(id => {
+      const el = $(id);
+      if (el) el.value = "";
+    });
+    const cat = $(IDS.category);
+    if (cat) cat.value = "";
 
-  let data;
-  try { data = JSON.parse(raw); } catch { return; }
+    // clear files
+    [IDS.ko01_file, IDS.ko02_file, IDS.ko03_file, IDS.ko04_file].forEach(id => {
+      const el = $(id);
+      if (el) el.value = "";
+    });
 
-  const shop = data.shopInfo || {};
-  const metrics = data.metrics || {};
+    // clear KO fields
+    const ko05 = $(IDS.ko05_months);
+    if (ko05) ko05.value = "";
+    const ko06 = $(IDS.ko06_ok);
+    if (ko06) ko06.value = "";
+    const ko07m = $(IDS.ko07_months);
+    if (ko07m) ko07m.value = "";
 
-  const setVal = (id, val) => {
-    const el = document.getElementById(id);
-    if (el) el.value = val ?? "";
-  };
+    // reset meta
+    [IDS.ko01_meta, IDS.ko02_meta, IDS.ko03_meta, IDS.ko04_meta].forEach(id => {
+      const el = $(id);
+      if (el) el.textContent = "Chưa có file";
+    });
 
-  // Shop fields
-  setVal("companyName", shop.companyName);
-  setVal("businessLicenseNo", shop.businessLicenseNo);
-  setVal("brandName", shop.brandName);
-  setVal("shopId", shop.shopId);
-  setVal("userId", shop.userId);
-  setVal("username", shop.username);
+    // reset status
+    setStatusBadge(IDS.ko01_status, null);
+    setStatusBadge(IDS.ko02_status, null);
+    setStatusBadge(IDS.ko03_status, null);
+    setStatusBadge(IDS.ko04_status, null);
+    setStatusBadge(IDS.ko05_status, null);
+    setStatusBadge(IDS.ko06_status, null);
+    setStatusBadge(IDS.ko07_status, null);
 
-  // KO extra fields
-  setVal("ko05", metrics.ko05_months);
-  setVal("ko06", metrics.ko06_noSevereViolation);
-  setVal("ko07", metrics.ko07_domain);
+    // reset state
+    Object.keys(validationState).forEach(k => (validationState[k] = false));
+    computeBadgesAndChecklist();
+    setFinalMsg(false);
+    showToast("success", "Đã reset", "Form đã được reset.");
+  }
 
-  // Re-validate để update UI/State
-  ["companyName", "businessLicenseNo", "brandName", "shopId", "userId", "username"].forEach(validateShopInfo);
-  validateKO05();
-  validateKO06();
-  validateKO07(); // async DNS check
-}
+  function restoreFromSession() {
+    const raw = sessionStorage.getItem("validatedHardKO");
+    if (!raw) return;
+    let data;
+    try { data = JSON.parse(raw); } catch { return; }
 
+    const shop = data.shopInfo || {};
+    const metrics = data.metrics || {};
 
-/* =========================================
-   5) INIT EVENT LISTENERS
-   ========================================= */
+    if ($(IDS.shop_name)) $(IDS.shop_name).value = shop.shop_name || "";
+    if ($(IDS.shop_id)) $(IDS.shop_id).value = shop.shop_id || "";
+    if ($(IDS.store_name)) $(IDS.store_name).value = shop.store_name || "";
+    if ($(IDS.category)) $(IDS.category).value = shop.category || "";
+    if ($(IDS.brand)) $(IDS.brand).value = shop.brand || "";
+    if ($(IDS.domain)) $(IDS.domain).value = shop.domain || "";
 
-document.addEventListener("DOMContentLoaded", () => {
-  // Shop info (6 fields)
-  ["companyName", "businessLicenseNo", "brandName", "shopId", "userId", "username"].forEach(id => {
-    document.getElementById(id)?.addEventListener("input", () => validateShopInfo(id));
+    if ($(IDS.ko05_months)) $(IDS.ko05_months).value = metrics.ko05_months || "";
+    if ($(IDS.ko06_ok)) $(IDS.ko06_ok).value = metrics.ko06_ok || "";
+    if ($(IDS.ko07_months)) $(IDS.ko07_months).value = metrics.ko07_months || "";
+
+    // revalidate (files cannot be restored)
+    validateShopField(IDS.shop_name);
+    validateShopField(IDS.shop_id);
+    validateShopField(IDS.store_name);
+    validateShopField(IDS.category);
+    validateShopField(IDS.brand);
+    validateShopField(IDS.domain);
+
+    validateKO05();
+    validateKO06();
+    // KO-07 async
+    validateKO07_Composed({ showLoading: false }).finally(() => computeBadgesAndChecklist());
+  }
+
+  // ===== Init listeners =====
+  document.addEventListener("DOMContentLoaded", () => {
+    // shop fields
+    [IDS.shop_name, IDS.shop_id, IDS.store_name, IDS.category, IDS.brand].forEach(id => {
+      $(id)?.addEventListener("input", () => {
+        validateShopField(id);
+        computeBadgesAndChecklist();
+      });
+      $(id)?.addEventListener("change", () => {
+        validateShopField(id);
+        computeBadgesAndChecklist();
+      });
+    });
+
+    // domain: shopInfo non-empty + KO07 composed (debounced DNS)
+    const debouncedKO07 = debounce(() => validateKO07_Composed({ showLoading: true }).then(computeBadgesAndChecklist), 800);
+    $(IDS.domain)?.addEventListener("input", () => {
+      validateShopField(IDS.domain); // shop info "required"
+      debouncedKO07();
+    });
+
+    // file inputs
+    $(IDS.ko01_file)?.addEventListener("change", () => { validateFile(IDS.ko01_file, IDS.ko01_meta, IDS.ko01_status, "ko01"); computeBadgesAndChecklist(); });
+    $(IDS.ko02_file)?.addEventListener("change", () => { validateFile(IDS.ko02_file, IDS.ko02_meta, IDS.ko02_status, "ko02"); computeBadgesAndChecklist(); });
+    $(IDS.ko03_file)?.addEventListener("change", () => { validateFile(IDS.ko03_file, IDS.ko03_meta, IDS.ko03_status, "ko03"); computeBadgesAndChecklist(); });
+    $(IDS.ko04_file)?.addEventListener("change", () => { validateFile(IDS.ko04_file, IDS.ko04_meta, IDS.ko04_status, "ko04"); computeBadgesAndChecklist(); });
+
+    // KO-05
+    const debouncedKO05 = debounce(() => { validateKO05(); computeBadgesAndChecklist(); }, 400);
+    $(IDS.ko05_months)?.addEventListener("input", debouncedKO05);
+
+    // KO-06
+    $(IDS.ko06_ok)?.addEventListener("change", () => { validateKO06(); computeBadgesAndChecklist(); });
+
+    // KO-07 months: validate immediately (no debounce)
+    $(IDS.ko07_months)?.addEventListener("input", () => {
+      validateKO07_Composed({ showLoading: false }).then(computeBadgesAndChecklist);
+    });
+
+    // buttons
+    $(IDS.btnValidate)?.addEventListener("click", async () => {
+      await validateAll({ showToastOnFail: true });
+      // show modal with status
+      const pass = Object.values(validationState).every(v => v === true);
+      if (pass) showModal("✅ Hard KO đạt", "Hồ sơ đã đạt Hard KO. Bạn có thể bấm <b>Tiếp tục (Soft KO)</b>.");
+      else showModal("❌ Hard KO chưa đạt", "Vui lòng hoàn thiện các mục đang FAIL trong checklist.");
+    });
+
+    $(IDS.btnGoSoftKo)?.addEventListener("click", () => {
+      goNextIfPass();
+    });
+
+    $(IDS.btnReset)?.addEventListener("click", resetForm);
+    $(IDS.btnExport)?.addEventListener("click", exportDebugJSON);
+
+    // modal/toast close
+    $(IDS.modalOk)?.addEventListener("click", hideModal);
+    $(IDS.modalClose)?.addEventListener("click", hideModal);
+    $(IDS.toastClose)?.addEventListener("click", () => $(IDS.toast)?.classList.remove("show"));
+
+    // initial paint
+    computeBadgesAndChecklist();
+    setFinalMsg(false);
+    restoreFromSession();
   });
 
-  // File uploads (4 files)
-  document.getElementById("ko01")?.addEventListener("change", () => validateFileField("ko01"));
-  document.getElementById("ko02")?.addEventListener("change", () => validateFileField("ko02"));
-  document.getElementById("ko03")?.addEventListener("change", () => validateFileField("ko03"));
-  document.getElementById("ko04")?.addEventListener("change", () => validateFileField("ko04"));
-
-  // KO-05 months (debounce)
-  const debouncedKO05 = debounce(validateKO05, 500);
-  document.getElementById("ko05")?.addEventListener("input", debouncedKO05);
-
-  // KO-06 select
-  document.getElementById("ko06")?.addEventListener("change", validateKO06);
-
-  // KO-07 domain (debounce + async DNS)
-  const debouncedKO07 = debounce(() => validateKO07_Composed(), 800);
-
-  document.getElementById("domain")?.addEventListener("input", () => debouncedKO07());
-  document.getElementById("ko07_months")?.addEventListener("input", () => validateKO07_Composed());
-
-
-  // Buttons
-  document.getElementById("nextBtn")?.addEventListener("click", handleNavigation);
-  document.getElementById("resetBtn")?.addEventListener("click", resetForm);
-
-  // Initial paint
-  updateProgressChecklist();
-  evaluateFinalGate();
-  restoreHardKOFromSession();
-
-});
+})();
