@@ -46,8 +46,8 @@
     // KO-05..07
     ko05_months: "ko05_months",
     ko06_ok: "ko06_ok",
-    ko07_link: "ko07_link",       // ✅ NEW: link website input
-    ko07_months: "ko07_months",   // ✅ NEW: validity months input
+    ko07_link: "ko07_link",       // ✅ link website input
+    ko07_months: "ko07_months",   // ✅ website validity months input
     ko05_status: "ko05_status",
     ko06_status: "ko06_status",
     ko07_status: "ko07_status",
@@ -57,7 +57,10 @@
     hardKoBadge: "hardKoBadge",
     progressBadge: "progressBadge",
     progressList: "progressList",
-    progressText: "progress-text", // note: your HTML shows class="progress-text" in sidebar items; but we update badge text elsewhere
+    progressText: "progress-text",
+
+    // final status box (persist)
+    finalMsg: "finalMsg",
 
     // actions
     btnValidate: "btnValidate",
@@ -95,7 +98,7 @@
     [IDS.store_name]: false,
     [IDS.category]: false,
     [IDS.brand]: false,
-    [IDS.domain]: false, // only required non-empty
+    [IDS.domain]: false, // required non-empty (DNS checked in KO-07)
 
     // Hard KO (7)
     ko01: false,
@@ -180,22 +183,29 @@
 
   // ===== UI helpers =====
 
+  // ✅ SYNC with KO_GATE.html: status badges are "status-badge" + (valid/invalid)
   function setStatusBadge(statusId, isPass, message = "") {
     const el = $(statusId);
     if (!el) return;
 
     const msg = message ? ` ${message}` : "";
 
+    // reset state
     if (isPass === null) {
       el.textContent = "CHƯA KIỂM TRA";
-      el.className = "pill";
+      el.className = "status-badge";
       return;
     }
 
     el.textContent = (isPass ? "✅ PASS" : "❌ FAIL") + msg;
+    el.className = "status-badge " + (isPass ? "valid" : "invalid");
+  }
 
-    // Your HTML uses class="pill" in KO status. We keep that + add pass/fail.
-    el.className = "pill " + (isPass ? "pass" : "fail");
+  function setStatusLoading(statusId, text = "⏳ Đang kiểm tra...") {
+    const el = $(statusId);
+    if (!el) return;
+    el.textContent = text;
+    el.className = "status-badge";
   }
 
   function setBadge(id, type, text) {
@@ -236,6 +246,88 @@
   function hideModal() {
     const overlay = $(IDS.modalOverlay);
     if (overlay) overlay.classList.remove("show");
+  }
+
+  // ===== Final status box (persist) =====
+  function setFinalBox(pass, htmlOrText) {
+    const el = $(IDS.finalMsg);
+    if (!el) return;
+
+    // keep base class "final-msg" in HTML, toggle pass/fail
+    el.classList.remove("pass", "fail");
+
+    if (pass === true) {
+      el.classList.add("pass");
+      el.textContent = "HỒ SƠ HỢP LỆ";
+      return;
+    }
+
+    if (pass === false) {
+      el.classList.add("fail");
+      el.innerHTML = htmlOrText || "Hồ sơ chưa đạt. Vui lòng kiểm tra các mục FAIL.";
+      return;
+    }
+
+    el.textContent = "Chưa kiểm tra Hard KO";
+  }
+
+  function escHtml(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function buildFailHtml() {
+    const items = [
+      { key: IDS.shop_name, label: "Tên Shop" },
+      { key: IDS.shop_id, label: "Shop ID" },
+      { key: IDS.store_name, label: "Tên DN/Cửa hàng" },
+      { key: IDS.category, label: "Ngành hàng" },
+      { key: IDS.brand, label: "Thương hiệu" },
+      { key: IDS.domain, label: "Website/Domain" },
+
+      { key: "ko01", label: "KO-01: GPKD", statusId: IDS.ko01_status },
+      { key: "ko02", label: "KO-02: ĐKNH", statusId: IDS.ko02_status },
+      { key: "ko03", label: "KO-03: UQSP", statusId: IDS.ko03_status },
+      { key: "ko04", label: "KO-04: CBSP", statusId: IDS.ko04_status },
+      { key: "ko05", label: "KO-05: Hiệu lực giấy tờ > 6 tháng", statusId: IDS.ko05_status },
+      { key: "ko06", label: "KO-06: Không vi phạm nghiêm trọng", statusId: IDS.ko06_status },
+      { key: "ko07", label: "KO-07: Website + DNS A + hiệu lực > 6 tháng", statusId: IDS.ko07_status },
+    ];
+
+    const failed = items
+      .filter(it => validationState[it.key] !== true)
+      .map(it => {
+        let reason = "";
+        if (it.statusId) {
+          const t = ($(it.statusId)?.textContent || "").trim();
+          // e.g. "❌ FAIL (Thiếu keyword)" -> extract "(Thiếu keyword)"
+          reason = t ? t.replace(/^.*FAIL\s*/i, "").trim() : "";
+        } else {
+          reason = "(Thiếu dữ liệu)";
+        }
+        return { label: it.label, reason };
+      });
+
+    if (!failed.length) {
+      return "<div>Vui lòng kiểm tra lại các tiêu chí Hard KO.</div>";
+    }
+
+    const lis = failed.map(f => {
+      const r = f.reason ? ` <span style="color:#991B1B;font-weight:800;">${escHtml(f.reason)}</span>` : "";
+      return `<li style="margin:6px 0;"><b>${escHtml(f.label)}</b>${r}</li>`;
+    }).join("");
+
+    return `
+      <div style="font-weight:900;font-size:16px;margin-bottom:8px;">HỒ SƠ CHƯA ĐẠT</div>
+      <div style="font-size:13px;line-height:1.6;">
+        <div style="margin-bottom:6px;">Các mục chưa đạt:</div>
+        <ul style="margin:0 0 0 18px;padding:0;">${lis}</ul>
+      </div>
+    `;
   }
 
   function validateShopField(id) {
@@ -342,14 +434,7 @@
       return false;
     }
 
-    // show loading
-    if (showLoading) {
-      const el = $(IDS.ko07_status);
-      if (el) {
-        el.textContent = "⏳ Đang kiểm tra...";
-        el.className = "pill";
-      }
-    }
+    if (showLoading) setStatusLoading(IDS.ko07_status, "⏳ Đang kiểm tra...");
 
     // reachability
     const reachable = await checkUrlReachable(url);
@@ -431,7 +516,15 @@
     setBadge(IDS.shopInfoBadge, shopOK ? "success" : "warning", shopOK ? "Đã đủ" : "Chưa đủ");
 
     // hard badge
-    const hardOK = [validationState.ko01, validationState.ko02, validationState.ko03, validationState.ko04, validationState.ko05, validationState.ko06, validationState.ko07].every(Boolean);
+    const hardOK = [
+      validationState.ko01,
+      validationState.ko02,
+      validationState.ko03,
+      validationState.ko04,
+      validationState.ko05,
+      validationState.ko06,
+      validationState.ko07
+    ].every(Boolean);
     setBadge(IDS.hardKoBadge, hardOK ? "success" : "warning", hardOK ? "Đạt" : "Chưa đủ");
 
     renderChecklist();
@@ -473,6 +566,30 @@
 
   function safeParse(raw) {
     try { return raw ? JSON.parse(raw) : null; } catch { return null; }
+  }
+
+  function downloadJSON(filename, obj) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportDebugJSON() {
+    const data = {
+      validatedHardKO: safeParse(sessionStorage.getItem("validatedHardKO")),
+      soft_ko_gate: safeParse(localStorage.getItem("soft_ko_gate")),
+      current_assessment_id: sessionStorage.getItem("current_assessment_id") || "",
+      computedAt: new Date().toISOString(),
+      validationState,
+    };
+    downloadJSON("KO_GATE_debug.json", data);
+    showToast("success", "Export thành công", "Đã tải KO_GATE_debug.json");
   }
 
   function cacheHardEvidenceLocal(assessmentId, hardObj) {
@@ -549,10 +666,16 @@
 
   async function goNextIfPass() {
     const pass = await validateAll({ showToastOnFail: true });
+
     if (!pass) {
-      showModal("❌ Hard KO chưa đạt", "Vui lòng hoàn thiện các mục đang FAIL trong checklist.");
+      const failHtml = buildFailHtml();
+      setFinalBox(false, failHtml);
+      showModal("❌ Hard KO chưa đạt", failHtml);
       return;
     }
+
+    // ✅ persist PASS on page
+    setFinalBox(true);
 
     const exportData = buildExportData();
 
@@ -613,6 +736,9 @@
     clearRedirectTimers();
     hideModal();
 
+    // reset final box
+    setFinalBox(null);
+
     // clear shop fields
     [IDS.shop_name, IDS.shop_id, IDS.store_name, IDS.brand, IDS.domain].forEach(id => {
       const el = $(id);
@@ -639,7 +765,7 @@
       if (el) el.textContent = "Chưa có file";
     });
 
-    // reset status pills
+    // reset status badges
     setStatusBadge(IDS.ko01_status, null);
     setStatusBadge(IDS.ko02_status, null);
     setStatusBadge(IDS.ko03_status, null);
@@ -691,6 +817,9 @@
 
   // ===== Init listeners =====
   document.addEventListener("DOMContentLoaded", () => {
+    // init final box
+    setFinalBox(null);
+
     // shop fields
     [IDS.shop_name, IDS.shop_id, IDS.store_name, IDS.category, IDS.brand, IDS.domain].forEach(id => {
       $(id)?.addEventListener("input", () => {
@@ -720,12 +849,18 @@
 
     // buttons
     $(IDS.btnValidate)?.addEventListener("click", async () => {
-      const pass = await validateAll({ showToastOnFail: true });
-      showModal(pass ? "✅ Hard KO đạt" : "❌ Hard KO chưa đạt",
-        pass
-          ? "Hồ sơ đã đạt Hard KO. Bạn có thể bấm <b>Tiếp tục (Soft KO)</b>."
-          : "Vui lòng hoàn thiện các mục đang FAIL trong checklist."
-      );
+      const pass = await validateAll({ showToastOnFail: false });
+
+      if (pass) {
+        setFinalBox(true);
+        showModal("✅ HỒ SƠ HỢP LỆ", "Hard KO đã đạt. Bạn có thể bấm <b>Tiếp tục (Soft KO)</b>.");
+        return;
+      }
+
+      const failHtml = buildFailHtml();
+      setFinalBox(false, failHtml);
+      showModal("❌ Hard KO chưa đạt", failHtml);
+      showToast("error", "Hard KO chưa đạt", "Vui lòng hoàn thiện các mục đang FAIL trong checklist.");
     });
 
     $(IDS.btnGoSoftKo)?.addEventListener("click", goNextIfPass);
@@ -743,4 +878,3 @@
   });
 
 })();
-
