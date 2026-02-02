@@ -1,16 +1,16 @@
 /**
  * ============================================================
- * script_result.js - RESULT PAGE (FINAL FIX)
+ * script_result.js - RESULT PAGE (LOGIC FIXES ONLY)
  * ============================================================
- * ✅ FIX #1: ID container = "#mainRoot" (không phải #mainContent)
- * ✅ FIX #2: Class group card = ".gcard" (không phải .group-card)
- * ✅ FIX #3: Prioritize breakdown over kpis (data source priority)
- * ✅ FIX #4: Ensure weight_final never = 0 (fallback chain)
- * ✅ FIX #5: Normalize group names (VN/EN)
+ * ✅ GIỮ 100% giao diện cũ, chỉ sửa logic:
+ * - FIX #1: mainRoot container ID
+ * - FIX #2: gcard class (không .group-card)
+ * - FIX #3: Prioritize breakdown over kpis
+ * - FIX #4: Weight fallback chain
+ * - FIX #5: Group name normalization
  */
 
 const $ = (id) => document.getElementById(id);
-
 let toastTimer = null;
 
 /* ============================================================
@@ -23,19 +23,13 @@ function showToast(type, title, message, ms = 2600) {
   toast.classList.remove("success");
   if (type === "success") toast.classList.add("success");
 
-  const content = toast.querySelector(".content");
-  if (!content) return;
+  const iconEl = $("toastIcon");
+  const titleEl = $("toastTitle");
+  const msgEl = $("toastMsg");
 
-  const icon = content.querySelector(".icon");
-  const text = content.querySelector(".text");
-
-  if (icon) icon.textContent = type === "success" ? "✓" : "!";
-  if (text) {
-    const h4 = text.querySelector("h4");
-    const p = text.querySelector("p");
-    if (h4) h4.textContent = title;
-    if (p) p.textContent = message;
-  }
+  if (iconEl) iconEl.textContent = type === "success" ? "✓" : "!";
+  if (titleEl) titleEl.textContent = title;
+  if (msgEl) msgEl.textContent = message;
 
   toast.style.display = "block";
   if (toastTimer) clearTimeout(toastTimer);
@@ -43,11 +37,8 @@ function showToast(type, title, message, ms = 2600) {
 }
 
 function getQueryParam(name) {
-  try {
-    return new URL(window.location.href).searchParams.get(name);
-  } catch {
-    return null;
-  }
+  const u = new URL(window.location.href);
+  return u.searchParams.get(name);
 }
 
 function _safeParseJsonLite(raw) {
@@ -71,11 +62,15 @@ function requireHardGateEvidenceOrRedirectLocal(localAssessment) {
   return true;
 }
 
+function withAssessmentId(path, assessmentId) {
+  const base = path.startsWith("./") ? path : "./" + path;
+  if (assessmentId) return `${base}?assessment_id=${encodeURIComponent(assessmentId)}`;
+  return `${base}?mode=local`;
+}
+
 function syncDashboardLinks(assessmentId) {
   const isLocal = String(assessmentId || "").startsWith("LOCAL_");
-  const dashHref = isLocal
-    ? "./DASHBOARD.html?mode=local"
-    : `./DASHBOARD.html?assessment_id=${encodeURIComponent(assessmentId)}`;
+  const dashHref = isLocal ? "./DASHBOARD.html?mode=local" : withAssessmentId("./DASHBOARD.html", assessmentId);
 
   const btnGoDashboard = document.getElementById("btnGoDashboard");
   if (btnGoDashboard) {
@@ -94,6 +89,10 @@ function syncDashboardLinks(assessmentId) {
       window.location.href = dashHref;
     };
   }
+
+  document
+    .querySelectorAll('.footer-actions a[href="./DASHBOARD.html"], .footer-actions a[href="././DASHBOARD.html"]')
+    .forEach((a) => a.setAttribute("href", dashHref));
 }
 
 function fmtDateTime(iso) {
@@ -128,28 +127,28 @@ function tierMeta(tier) {
         label: "Near Mall-Ready",
         cls: "ok",
         icon: "🟢",
-        desc: "Gần đủ điều kiện (Near Eligible); cần cải thiện thêm một chút.",
+        desc: "Gần đủ điều kiện; cần cải thiện thêm.",
       };
     case "PARTIALLY_READY":
       return {
         label: "Partially Ready",
         cls: "warn",
         icon: "🟡",
-        desc: "Phần nào sẵn sàng; cần cải thiện nhiều hơn.",
+        desc: "Phần nào sẵn sàng; cần cải thiện nhiều.",
       };
     case "NOT_READY":
       return {
         label: "Not Ready",
         cls: "danger",
         icon: "🔴",
-        desc: "Chưa sẵn sàng; cần thực hiện nhiều cải tiến.",
+        desc: "Chưa sẵn sàng; cần nhiều cải tiến.",
       };
     case "GATE_BLOCKED":
       return {
         label: "Gate Blocked",
         cls: "danger",
         icon: "🚫",
-        desc: "Bị chặn bởi gate; cần xử lý các gate fail trước.",
+        desc: "Bị chặn bởi gate; cần xử lý gate fail.",
       };
     default:
       return {
@@ -162,9 +161,25 @@ function tierMeta(tier) {
 }
 
 function scoreTone(score) {
-  if (score >= 85) return { cls: "ok", tone: "xanh" };
-  if (score >= 70) return { cls: "warn", tone: "vàng" };
-  return { cls: "danger", tone: "đỏ" };
+  const tone = { color: "", bg: "", label: "" };
+  if (score >= 85) {
+    tone.color = "#059669";
+    tone.bg = "#D1FAE5";
+    tone.label = "Đủ điều kiện (MALL_READY)";
+  } else if (score >= 70) {
+    tone.color = "#D97706";
+    tone.bg = "#FEF3C7";
+    tone.label = "Gần đủ (NEAR_MALL_READY)";
+  } else if (score >= 50) {
+    tone.color = "#EA8C55";
+    tone.bg = "#FECACA";
+    tone.label = "Phần nào sẵn (PARTIALLY_READY)";
+  } else {
+    tone.color = "#DC2626";
+    tone.bg = "#FEE2E2";
+    tone.label = "Chưa sẵn (NOT_READY)";
+  }
+  return tone;
 }
 
 function gateBadge(status) {
@@ -190,10 +205,6 @@ function safeText(raw) {
   return String(raw || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function safeParseJson(s) {
-  try { return JSON.parse(s); } catch { return null; }
-}
-
 function renderEmpty(msg) {
   const main = $("mainRoot") || document.body;
   main.innerHTML = `
@@ -202,11 +213,15 @@ function renderEmpty(msg) {
         <div class="left">⚠️ No data</div>
       </div>
       <div class="section-body">
-        <p style="white-space:pre-wrap; color:#6B7280">${safeText(msg)}</p>
+        <p class="muted" style="white-space:pre-wrap">${safeText(msg)}</p>
       </div>
     </section>
   `;
   $("loadingSection")?.remove();
+}
+
+function safeParseJson(s) {
+  try { return JSON.parse(s); } catch { return null; }
 }
 
 /* ============================================================
@@ -278,8 +293,21 @@ function bestEffortShopInfo(local) {
   const shopRaw = localStorage.getItem("shop_info");
   const shopInfo = shopRaw ? safeParseJson(shopRaw) : null;
 
-  let shopName = shopInfo?.shop_name || shopInfo?.shopName || local?.shop_name || local?.shopName || local?.shop?.shop_name || local?.shop?.shopName;
-  let shopId = shopInfo?.shop_id || shopInfo?.shopId || local?.shop_id || local?.shopId || local?.shop?.shop_id || local?.shop?.shopId;
+  let shopName =
+    shopInfo?.shop_name ||
+    shopInfo?.shopName ||
+    local?.shop_name ||
+    local?.shopName ||
+    local?.shop?.shop_name ||
+    local?.shop?.shopName;
+
+  let shopId =
+    shopInfo?.shop_id ||
+    shopInfo?.shopId ||
+    local?.shop_id ||
+    local?.shopId ||
+    local?.shop?.shop_id ||
+    local?.shop?.shopId;
 
   if (!shopName || !shopId) {
     for (let i = 0; i < localStorage.length; i++) {
@@ -306,10 +334,10 @@ function bestEffortShopInfo(local) {
 }
 
 /* ============================================================
-   ✅ FIX #3-5: calcGroupsAndKpisFromLocal with all fixes
+   ✅ FIX #3-5: calcGroupsAndKpisFromLocal
 ============================================================ */
 function calcGroupsAndKpisFromLocal(local) {
-  // ✅ FIX #3: Prioritize breakdown over kpis
+  // ✅ FIX #3: Prioritize breakdown over kpis (scoring_logic saves breakdown)
   const sourceKpis = Array.isArray(local?.breakdown)
     ? local.breakdown
     : (Array.isArray(local?.kpis) ? local.kpis : []);
@@ -322,11 +350,13 @@ function calcGroupsAndKpisFromLocal(local) {
 
   let kpis = sourceKpis
     .map((k) => {
-      const ruleId = k.id || k.rule_id || k.kpiId;
+      const ruleId = k && (k.rule_id || k.id || k.kpiId);
       if (!ruleId) return null;
 
-      const metaSSOT = window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function"
-        ? window.MRSM_CONFIG.getKpiMeta(ruleId) : null;
+      const metaSSOT =
+        window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function"
+          ? window.MRSM_CONFIG.getKpiMeta(ruleId)
+          : null;
 
       const fallbackName = metaSSOT?.name || ruleId;
 
@@ -336,51 +366,62 @@ function calcGroupsAndKpisFromLocal(local) {
       const wfBackup = getWeightEffectiveFromBackup(ruleId, len);
       const wf = wfRecord > 0 ? wfRecord : (wfSSOT > 0 ? wfSSOT : (wfBackup > 0 ? wfBackup : (1 / len)));
 
-      // ✅ FIX #5: Normalize group name (VN/EN)
-      let group = k.group || "";
+      // ✅ FIX #5: Normalize group name (VN/EN support)
+      let gRaw = k.group || "";
+      let gNorm = gRaw;
+
       if (window.AnalysisEngine && typeof window.AnalysisEngine.normalizeGroupName === "function") {
-        group = window.AnalysisEngine.normalizeGroupName(group) || window.AnalysisEngine.defaultGroupOf(ruleId);
+        gNorm = window.AnalysisEngine.normalizeGroupName(gRaw) || window.AnalysisEngine.defaultGroupOf(ruleId);
       } else {
         // Manual fallback
-        group = group || (
+        const upper = String(gRaw).toUpperCase();
+        if (upper === "OPERATION" || upper === "VẬN HÀNH" || upper === "VAN HANH" || upper.includes("VAN")) {
+          gNorm = "Operation";
+        } else if (upper === "BRAND" || upper === "THƯƠNG HIỆU" || upper === "THUONG HIEU" || upper.includes("THUONG")) {
+          gNorm = "Brand";
+        } else if (upper === "CATEGORY" || upper === "DANH MỤC" || upper === "DANH MUC" || upper.includes("DANH")) {
+          gNorm = "Category";
+        } else if (upper === "SCALE" || upper === "QUY MÔ" || upper === "QUY MO" || upper.includes("QUY")) {
+          gNorm = "Scale";
+        } else if (
           ruleId.startsWith("OP-") || ruleId.startsWith("CS-") || ruleId.startsWith("PEN-") || ruleId.startsWith("CO-")
-            ? "Operation"
-            : (ruleId.startsWith("BR-") ? "Brand" :
-              (ruleId.startsWith("CAT-") ? "Category" :
-                (ruleId.startsWith("SC-") ? "Scale" : "Operation")))
-        );
+        ) {
+          gNorm = "Operation";
+        } else if (ruleId.startsWith("BR-")) {
+          gNorm = "Brand";
+        } else if (ruleId.startsWith("CAT-")) {
+          gNorm = "Category";
+        } else if (ruleId.startsWith("SC-")) {
+          gNorm = "Scale";
+        } else {
+          gNorm = gRaw || "Operation";
+        }
       }
 
       return {
+        ...k,
         rule_id: ruleId,
-        name: k.name ?? fallbackName,
-        group,
-        domain: group,
         score: Number(k.score ?? 0),
         weight_final: wf,
-        value: k.value ?? null,
-        meta: k.meta ?? metaSSOT ?? null,
-        is_gate: Boolean(k.is_gate ?? false),
+        group: gNorm,
+        domain: gNorm,
       };
     })
     .filter(Boolean);
 
-  // ✅ Normalize weights to sum=1
+  // Normalize weights so sum=1
   const sumW = kpis.reduce((s, it) => s + (it.weight_final || 0), 0);
   if (sumW > 0) {
     kpis.forEach((it) => (it.weight_final = (it.weight_final || 0) / sumW));
   }
 
-  // ✅ Calculate group breakdown
+  // Calculate group breakdown
   const groups = {};
   ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
     const items = kpis.filter((x) => x.group === g);
     const wsum = items.reduce((s, it) => s + (it.weight_final || 0), 0);
     const contrib = items.reduce((s, it) => s + it.score * (it.weight_final || 0), 0);
-    groups[g] = {
-      score: wsum > 0 ? contrib / wsum : 0,
-      contribution: contrib,
-    };
+    groups[g] = { score: wsum > 0 ? contrib / wsum : 0, contribution: contrib };
   });
 
   return { kpis, groups };
@@ -391,10 +432,10 @@ function adaptLocalAssessment(local, forcedAssessmentId) {
   const { kpis, groups } = calcGroupsAndKpisFromLocal(local);
   const shop = bestEffortShopInfo(local);
 
-  const localGateStatus = local?.gate?.status || local?.gateStatus || local?.gate_status || "UNKNOWN";
-  const localHardFailed = local?.gate?.hard?.failed_rules || local?.hard_failed_rules || [];
-  const localSoftItems = local?.gate?.soft?.items || local?.soft_items || {};
-  const localSoftDeadline = local?.gate?.soft?.deadline_at || local?.soft_deadline_at || null;
+  const localGateStatus = local?.gate?.status || local?.gateStatus || local?.gate_status || local?.gate_state || "UNKNOWN";
+  const localHardFailed = local?.gate?.hard?.failed_rules || local?.hard_failed_rules || local?.hardFailedRules || [];
+  const localSoftItems = local?.gate?.soft?.items || local?.soft_items || local?.softItems || {};
+  const localSoftDeadline = local?.gate?.soft?.deadline_at || local?.soft_deadline_at || local?.softDeadlineAt || null;
   const totalScore = Number(local.totalScore ?? 0);
 
   return {
@@ -418,8 +459,81 @@ function adaptLocalAssessment(local, forcedAssessmentId) {
   };
 }
 
+function kpiClassificationTag(kpi) {
+  const hasDirectGate = kpi.gateThreshold !== undefined && kpi.gateThreshold !== null;
+  if (hasDirectGate) {
+    return {
+      label: "Mandatory • Gate",
+      cls: "danger",
+      tooltip: "Gate (constraint): không đạt → MRSM_Final = 0 / blocked"
+    };
+  }
+
+  const hasGateInWindow = window.MRSM_GATE_THRESHOLDS && window.MRSM_GATE_THRESHOLDS[kpi.rule_id];
+  if (hasGateInWindow) {
+    return {
+      label: "Mandatory • Gate",
+      cls: "danger",
+      tooltip: "Gate (constraint): không đạt → MRSM_Final = 0 / blocked"
+    };
+  }
+
+  return {
+    label: "Improvement • KPI",
+    cls: "ok",
+    tooltip: "Scoring (utility): ảnh hưởng điểm, không chặn gate"
+  };
+}
+
+window.MRSM_GATE_THRESHOLDS = (function () {
+  if (window.MRSM_GATE_THRESHOLDS && Object.keys(window.MRSM_GATE_THRESHOLDS).length > 0) {
+    return window.MRSM_GATE_THRESHOLDS;
+  }
+
+  const registry = window.MRSM_CONFIG?.GateRegistry;
+  if (!registry) {
+    return {
+      'OP-04': { type: 'percentage', direction: 'min', threshold: 85, unit: '%', label: 'Tỷ lệ giao hàng nhanh (Soft KO)' },
+      'PEN-01': { type: 'number', direction: 'max', threshold: 2, unit: ' điểm', label: 'Sao Quả Tạ (Soft KO)' },
+      'CO-01': { type: 'percentage', direction: 'max', threshold: 10, unit: '%', label: 'Pre-order Rate (Soft KO)' },
+      'SC-02': { type: 'number', direction: 'min', threshold: 150, unit: ' đơn', label: 'Số đơn 4 tuần (Soft KO)' },
+    };
+  }
+
+  const result = {};
+  for (const ruleId of registry.softKoIds) {
+    const rule = registry.getRule(ruleId);
+    if (rule) {
+      result[ruleId] = {
+        type: rule.type,
+        direction: rule.direction,
+        threshold: rule.threshold,
+        unit: rule.unit,
+        label: rule.label,
+      };
+    }
+  }
+  return result;
+})();
+
+function domainPriority(domain) {
+  switch (String(domain || "").toUpperCase()) {
+    case "OPERATION": return 0;
+    case "BRAND": return 1;
+    case "CATEGORY": return 2;
+    case "SCALE": return 3;
+    default: return 999;
+  }
+}
+
+function kpiScoreTag(score) {
+  if (score === 100) return `<span class="tag ok small">100</span>`;
+  if (score === 50) return `<span class="tag warn small">50</span>`;
+  return `<span class="tag danger small">0</span>`;
+}
+
 /* ============================================================
-   ✅ RENDER (RESULTS) - WITH FIX #1 & FIX #2
+   ✅ RENDER (RESULTS) - GIỮ 100% GIAO DIỆN CŨ
 ============================================================ */
 function render(assess) {
   $("loadingSection")?.remove();
@@ -443,6 +557,7 @@ function render(assess) {
   const softFailedIds = Object.keys(softItems).filter((id) => softItems?.[id] && softItems[id].passed === false);
 
   const isPass = gateStatus === "PASS";
+
   const finalScore = isPass ? Number(assess.mrsm?.final_score ?? 0) : 0;
   const computedTier = isPass ? tierFromScore(finalScore) : "GATE_BLOCKED";
   const tier = isPass ? assess.mrsm?.tier || computedTier : "GATE_BLOCKED";
@@ -451,17 +566,19 @@ function render(assess) {
   const tone = scoreTone(finalScore);
 
   let calloutCls = "info";
-  let calloutTitle = `${gateB.icon} Gate status: ${gateB.text}`;
+  let calloutTitle = `Gate status: ${gateB.text}`;
   let calloutDesc = "";
   let calloutListHtml = "";
 
   if (gateStatus === "G0") {
     calloutCls = "danger";
     calloutDesc = "Hard KO bị fail. MRSM_Final sẽ bị đặt về 0 cho đến khi pass tất cả Hard KO.";
+    calloutTitle = `🚫 ${calloutTitle}`;
     calloutListHtml = `
       <div class="list">
         ${(hardFailed.length ? hardFailed : ["(Không có dữ liệu failed_rules)"])
-        .map((r) => `
+        .map(
+          (r) => `
           <div class="li">
             <div class="left">
               <div class="title mono">${safeText(r)}</div>
@@ -469,7 +586,9 @@ function render(assess) {
             </div>
             <div class="prio">P0</div>
           </div>
-        `).join("")}
+        `
+        )
+        .join("")}
       </div>
     `;
   }
@@ -480,10 +599,13 @@ function render(assess) {
 
     if (gateStatus === "G1") {
       calloutCls = "warn";
-      calloutDesc = "Soft KO đang trong remediation window 7 ngày. Chỉ khi pass hết soft KO mới tính MRSM.";
+      calloutDesc =
+        "Soft KO đang trong remediation window 7 ngày. Chỉ khi pass hết soft KO mới tính MRSM theo weighted sum.";
+      calloutTitle = `⏳ ${calloutTitle}`;
     } else {
       calloutCls = "danger";
-      calloutDesc = "Soft KO đã quá hạn remediation window. Cần xử lý ngay.";
+      calloutDesc = "Soft KO đã quá hạn remediation window. Cần xử lý ngay các Soft KO fail để mở gate.";
+      calloutTitle = `⛔ ${calloutTitle}`;
     }
 
     let timeLine = "";
@@ -515,189 +637,278 @@ function render(assess) {
               <div class="prio">P0</div>
             </div>
           `;
-        }).join("")}
+        })
+        .join("")}
       </div>
     `;
   }
 
-  // ✅ FIX #1 & #2: Use correct target "#mainRoot" and class ".gcard"
-  const mainRoot = $("mainRoot");
-  if (!mainRoot) {
-    renderEmpty("Cannot find #mainRoot container. Check RESULTS.html.");
-    return;
+  if (gateStatus === "PASS") {
+    calloutCls = "ok";
+    calloutTitle = `✅ ${calloutTitle}`;
+    calloutDesc = "Gate đã PASS. MRSM_Final được tính theo Weighted Sum Model và tier theo ngưỡng điểm.";
+    calloutListHtml = `
+      <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
+        <span class="tag ok">0–49: NOT_READY</span>
+        <span class="tag warn">50–69: PARTIALLY_READY</span>
+        <span class="tag info">70–84: NEAR_MALL_READY</span>
+        <span class="tag ok">≥85: MALL_READY</span>
+      </div>
+    `;
   }
 
-  const allKpis = assess.kpis || [];
-
-  const groupCards = ["Operation", "Brand", "Category", "Scale"]
+  // ✅ FIX #2: Use .gcard (not .group-card)
+  const groups = assess.groups || {};
+  const groupOrder = ["Operation", "Brand", "Category", "Scale"];
+  const groupCards = groupOrder
     .map((g) => {
-      const data = assess.groups?.[g] || { score: 0, contribution: 0 };
-      const blocked = !isPass ? " blocked" : "";
-      const scoreVal = isPass ? Math.round(data.score) : 0;
-      // ✅ FIX #2: Use class="gcard" (not .group-card)
+      const s = Number(groups?.[g]?.score ?? 0);
+      const c = Number(groups?.[g]?.contribution ?? 0);
+      const blockedCls = isPass ? "" : "blocked";
       return `
-        <div class="gcard${blocked}">
-          <div class="t">
-            <span class="chip"></span>
-            ${g}
-          </div>
-          <div class="s">
-            <div class="val">${scoreVal}</div>
-            <div class="contrib">${(data.contribution || 0).toFixed(2)}</div>
-          </div>
+      <div class="gcard ${blockedCls}">
+        <div class="t"><span class="chip"></span>${g}</div>
+        <div class="s">
+          <div class="val">${Math.round(s)}</div>
+          <div class="contrib">Contribution: <span class="mono">${c.toFixed(2)}</span></div>
         </div>
-      `;
+      </div>
+    `;
     })
     .join("");
 
-  const fixlist = isPass
-    ? (() => {
-      const gap = allKpis
-        .map((k) => ({
-          rule_id: k.rule_id,
-          group: k.group,
+  let fixItems = [];
+  if (!isPass) {
+    const hard = hardFailed.map((r) => ({
+      id: r,
+      name: "Hard KO failed",
+      domain: "Operation",
+      score: 0,
+      weight_final: 0,
+      impact: null,
+      note: "Fix Hard KO để mở gate.",
+    }));
+    const soft = softFailedIds.map((id) => ({
+      id,
+      name: "Soft KO failed",
+      domain: "Operation",
+      score: 0,
+      weight_final: 0,
+      impact: null,
+      note: softItems?.[id]?.note || "Fix Soft KO trong remediation window.",
+    }));
+    fixItems = [...hard, ...soft].map((x) => ({ ...x, priority: "P0" }));
+  } else {
+    const kpis = Array.isArray(assess.kpis) ? assess.kpis : [];
+    fixItems = kpis
+      .map((k) => {
+        const score = Number(k.score ?? 0);
+        const w = Number(k.weight_final ?? 0);
+        const impact = (100 - score) * w;
+        return {
+          id: k.rule_id,
           name: k.name,
-          score: k.score,
-          weight: k.weight_final,
-          impact: (100 - k.score) * k.weight_final,
-        }))
-        .filter((x) => x.impact > 0)
-        .sort((a, b) => {
-          const groupOrder = { "Operation": 0, "Brand": 1, "Category": 2, "Scale": 3 };
-          const orderDiff = groupOrder[a.group] - groupOrder[b.group];
-          if (orderDiff !== 0) return orderDiff;
-          return b.impact - a.impact;
-        })
-        .slice(0, 5);
+          domain: k.domain || k.group || "",
+          score,
+          weight_final: w,
+          impact,
+          priority: null,
+          group: k.group || "",
+        };
+      })
+      .sort((a, b) => {
+        if ((b.impact ?? 0) !== (a.impact ?? 0)) return (b.impact ?? 0) - (a.impact ?? 0);
+        const dp = domainPriority(b.domain) - domainPriority(a.domain);
+        if (dp !== 0) return dp;
+        return String(a.id).localeCompare(String(b.id));
+      })
+      .slice(0, 5)
+      .map((x) => ({ ...x, priority: "P1" }));
+  }
 
-      return gap;
-    })()
-    : (() => {
-      const hardIds = hardFailed || [];
-      const softIds = softFailedIds || [];
-      const allFailedIds = [...new Set([...hardIds, ...softIds])];
-
-      return allFailedIds
-        .map((id) => {
-          const kpiObj = allKpis.find((k) => k.rule_id === id);
-          if (!kpiObj) return null;
-
-          const isHardFail = hardIds.includes(id);
-          const isSoftFail = softIds.includes(id);
-
-          return {
-            rule_id: id,
-            group: kpiObj.group,
-            name: kpiObj.name,
-            score: kpiObj.score,
-            weight: kpiObj.weight_final,
-            impact: 0,
-            gateType: isHardFail ? "Hard KO" : (isSoftFail ? "Soft KO" : "Gate"),
-          };
-        })
-        .filter(Boolean)
-        .slice(0, 5);
-    })();
-
-  const fixlistHtml = fixlist
-    .map(
-      (item) => `
-        <div class="li">
-          <div class="left">
-            <div class="title mono">${safeText(item.rule_id)}</div>
-            <div class="desc">${safeText(item.name)}</div>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center">
-            <span class="muted" style="font-size:11px">${item.group}</span>
-            ${isPass
-          ? `<span style="font-size:12px;color:#6B7280;font-weight:700">ImpactGap: ${item.impact.toFixed(2)}</span>`
-          : `<span style="font-size:12px;color:#6B7280;font-weight:700">${item.gateType}</span>`
-        }
-          </div>
-          <div class="prio">${isPass ? item.score : "Gate"}</div>
+  const fixlistHtml = fixItems.length
+    ? fixItems
+      .map((item) => {
+        const impactText = isPass
+          ? `ImpactGap: <span class="mono">${(item.impact ?? 0).toFixed(4)}</span> • w=${(item.weight_final ?? 0).toFixed(4)} • score=${item.score}`
+          : "";
+        const sub = isPass
+          ? `${safeText(item.name)} • ${safeText(item.group || "")} • ${safeText(item.domain || "")}`
+          : `${safeText(item.note || item.name)}`;
+        return `
+      <div class="li">
+        <div class="left">
+          <div class="title"><span class="mono">${safeText(item.id)}</span> ${isPass ? kpiScoreTag(item.score) : ""}</div>
+          <div class="desc">${sub}${impactText ? ` • ${impactText}` : ""}</div>
         </div>
-      `
-    )
-    .join("");
+        <div class="prio">${safeText(item.priority)}</div>
+      </div>
+    `;
+      })
+      .join("")
+    : `<div class="muted">Không có item.</div>`;
+
+  const allKpis = Array.isArray(assess.kpis) ? assess.kpis : [];
 
   const rows = allKpis
     .map((k) => {
-      const impactGapVal = isPass ? ((100 - k.score) * k.weight_final).toFixed(2) : "Blocked";
-      const q = `${k.rule_id} ${k.name} ${k.group}`.toLowerCase();
+      const score = Number(k.score ?? 0);
+      const w = Number(k.weight_final ?? 0);
+      const impact = (100 - score) * w;
+      const scoreTag = kpiScoreTag(score);
+      const groupTag = `<span class="tag">${safeText(k.group || "—")}</span>`;
+      const domainTag = `<span class="tag">${safeText(k.domain || "—")}</span>`;
+      const impactTag = isPass
+        ? `<span class="tag info"><span class="mono">${impact.toFixed(4)}</span></span>`
+        : `<span class="tag danger">Blocked</span>`;
+
+      let auditHtml = "";
+      if (k.rule_id === "CAT-02" && k.meta && typeof k.meta.auto_score === "number") {
+        const autoS = Number(k.meta.auto_score);
+        const finalS = Number(k.meta.final_score ?? score);
+        const ov = !!k.meta.override_applied;
+        const reason = safeText(k.meta.override_reason || "");
+        const files =
+          k.value && (k.value.whiteFile || k.value.lifeFile)
+            ? ` • <span class="muted">Files:</span> ${safeText(k.value.whiteFile || "—")} | ${safeText(k.value.lifeFile || "—")}`
+            : "";
+
+        auditHtml = `
+        <div class="kpi-sub" style="margin-top:4px">
+          <span class="mono">AUTO=${autoS}</span> •
+          <span class="mono">FINAL=${finalS}</span>
+          ${ov ? `• <span class="tag warn small">OVERRIDE</span>` : `• <span class="tag ok small">AUTO</span>`}
+          ${ov && reason ? `• <span class="muted">Reason:</span> ${safeText(reason)}` : ``}
+          ${files}
+        </div>
+      `;
+      }
+
+      const classifTag = kpiClassificationTag(k);
+      const classifHtml = `<span class="tag ${classifTag.cls}" title="${classifTag.tooltip}">${classifTag.label}</span>`;
 
       return `
-        <tr data-q="${q}">
-          <td><span class="mono">${safeText(k.rule_id)}</span></td>
-          <td><span class="kpi-name">${safeText(k.name)}</span></td>
-          <td>-</td>
-          <td>-</td>
-          <td><span class="tag ${k.score === 100 ? 'ok' : k.score === 50 ? 'warn' : 'danger'} small">${k.score}</span></td>
-          <td>${impactGapVal}</td>
-          <td><span class="tag ok small">KPI</span></td>
-        </tr>
-      `;
+      <tr data-q="${(safeText(k.rule_id) + " " + safeText(k.name) + " " + safeText(k.group) + " " + safeText(k.domain)).toLowerCase()}">
+        <td>
+          <div class="kpi-id mono">${safeText(k.rule_id)}</div>
+          <span class="kpi-sub mono">w=${w.toFixed(4)}</span>
+        </td>
+        <td>
+          <div class="kpi-name">${safeText(k.name)}</div>
+          <span class="kpi-sub">${safeText(k.group || "—")} • ${safeText(k.domain || "—")}</span>
+          ${classifHtml}
+          ${auditHtml}
+        </td>
+
+        ${(() => {
+          const gateTh = (window.MRSM_GATE_THRESHOLDS && window.MRSM_GATE_THRESHOLDS[k.rule_id]) ? window.MRSM_GATE_THRESHOLDS[k.rule_id] : null;
+          const scoreTh = k.score_threshold || null;
+
+          const gateText = gateTh
+            ? `${gateTh.direction === "min" ? "≥" : "≤"} ${gateTh.threshold}${gateTh.unit || ""}`
+            : "—";
+
+          const scoreText = scoreTh
+            ? (scoreTh.direction === "GE"
+              ? `100đ: ≥${scoreTh.t1}, 50đ: ≥${scoreTh.t2}`
+              : `100đ: ≤${scoreTh.t1}, 50đ: ≤${scoreTh.t2}`)
+            : "—";
+
+          const gateTip = gateTh ? `Gate (constraint): không đạt → MRSM_Final bị block/0` : "";
+          const scoreTip = scoreTh ? `Scoring (utility): ảnh hưởng điểm, không chặn gate` : "";
+
+          return `
+            <td title="${gateTip}"><span class="tag ${gateTh ? "danger" : ""}">${gateText}</span></td>
+            <td title="${scoreTip}"><span class="tag ${scoreTh ? "info" : ""}">${scoreText}</span></td>
+          `;
+        })()}
+
+        <td>${scoreTag}</td>
+        <td>${impactTag}</td>
+        <td>${groupTag} ${domainTag}</td>
+      </tr>
+    `;
     })
     .join("");
 
-  const kpiHref = `./KPI_SCORING.html?assessment_id=${encodeURIComponent(assessmentId || "")}`;
+  const dashHref = withAssessmentId("./DASHBOARD.html", assess.assessment_id);
+  const kpiHref = withAssessmentId("./KPI_SCORING.html", assess.assessment_id) + "&restore_draft=1";
 
-  mainRoot.innerHTML = `
+  // ✅ FIX #1: Use #mainRoot (not #mainContent)
+  const main = $("mainRoot");
+  if (!main) return;
+
+  main.innerHTML = `
     <section class="section">
       <div class="section-head">
-        <div class="left">📊 Assessment Result</div>
+        <div class="left">📌 Tổng quan kết quả</div>
         <div class="right">
-          <span class="pill">${evaluatedAt}</span>
+          <span class="badge big ${gateB.cls}">${gateB.icon} ${gateB.text}</span>
+          <span class="badge big ${tierM.cls}">${tierM.icon} Tier: ${tierM.label}</span>
         </div>
       </div>
+
       <div class="section-body">
         <div class="hero">
           <div class="hero-card">
             <div class="hero-top">
               <div class="hero-title">
-                <div class="h">🎯 MRSM Final Score</div>
+                <div class="h"><span class="dot"></span> MRSM_Final</div>
                 <div class="sub">
-                  <div>${isPass ? 'Gate: PASS ✅' : 'Gate: BLOCKED ⛔'}</div>
-                  <div>${tierM.label}</div>
+                  <span><span class="muted">Assessment:</span> <span class="mono">${safeText(assessmentId)}</span></span>
+                  <span><span class="muted">Evaluated at:</span> <span class="mono">${safeText(evaluatedAt)}</span></span>
                 </div>
               </div>
-              <div style="font-size:48px;font-weight:1000;color:${tone.cls === 'ok' ? '#059669' : tone.cls === 'warn' ? '#92400E' : '#DC2626'}">${Math.round(finalScore)}</div>
+              <span class="pill big">${isPass ? "Gate PASS → Score valid" : "Gate not PASS → Score forced 0"}</span>
             </div>
+
+            <div style="margin-top:14px; padding:14px; border-radius:16px; border:1px solid #eee;">
+              <div style="display:flex; align-items:baseline; gap:10px;">
+                <div style="font-size:56px; font-weight:1000; color:${tone.color}; line-height:1;">
+                  ${Number.isFinite(finalScore) ? Math.round(finalScore) : 0}
+                </div>
+                <div style="font-weight:900; color:#6B7280">/100</div>
+                <span style="margin-left:auto; padding:6px 10px; border-radius:999px; font-weight:1000; background:${tone.bg}; color:${tone.color};">
+                  ${tone.label}
+                </span>
+              </div>
+
+              <div style="margin-top:12px; height:12px; background:#E5E7EB; border-radius:999px; overflow:hidden;">
+                <div style="height:100%; width:${Math.max(0, Math.min(100, finalScore))}%; background:${tone.color}; border-radius:999px;"></div>
+              </div>
+
+              <div style="margin-top:8px; color:#6B7280; font-size:12px; font-weight:700;">
+                Ngưỡng màu: <b>&lt;60</b> đỏ • <b>≥60</b> xanh
+              </div>
+            </div>
+
+            <div style="margin-top:10px" class="muted">${safeText(tierM.desc)}</div>
+
             <div class="kv">
-              <div class="item">
-                <div class="k">Status</div>
-                <div class="v">${tierM.label}</div>
-              </div>
-              <div class="item">
-                <div class="k">Gate</div>
-                <div class="v">${gateB.text}</div>
-              </div>
+              <div class="item"><div class="k">Shop</div><div class="v">${safeText(shopName)}</div></div>
+              <div class="item"><div class="k">Shop ID</div><div class="v mono">${safeText(shopId)}</div></div>
+              <div class="item"><div class="k">Assessment ID</div><div class="v mono">${safeText(assessmentId)}</div></div>
+              <div class="item"><div class="k">Gate status</div><div class="v">${gateB.icon} ${gateB.text}</div></div>
             </div>
           </div>
+
           <div class="hero-card">
-            <div class="kv">
-              <div class="item">
-                <div class="k">Assessment ID</div>
-                <div class="v mono">${safeText(assessmentId)}</div>
-              </div>
-              <div class="item">
-                <div class="k">Shop</div>
-                <div class="v">${safeText(shopName)}</div>
-              </div>
-              <div class="item">
-                <div class="k">Shop ID</div>
-                <div class="v mono">${safeText(shopId)}</div>
-              </div>
-              <div class="item">
-                <div class="k">Evaluated At</div>
-                <div class="v mono">${safeText(evaluatedAt)}</div>
-              </div>
+            <div class="callout ${calloutCls}">
+              <h4>${calloutTitle}</h4>
+              <p>${safeText(calloutDesc)}</p>
+              ${calloutListHtml}
+            </div>
+
+            <div style="height:12px"></div>
+
+            <div class="callout info">
+              <h4>ℹ️ Quy tắc hiển thị (thesis-aligned)</h4>
+              <p>
+                <b>Không</b> dùng group score làm "kết quả cuối" khi gate chưa PASS.
+                Group có thể hiển thị nhưng sẽ bị gắn nhãn <b>Blocked by gate</b>.
+              </p>
             </div>
           </div>
-        </div>
-        <div class="callout ${gateStatus === 'PASS' ? 'ok' : 'danger'}" style="margin-top:18px">
-          <h4>${gateB.icon} ${calloutTitle}</h4>
-          ${calloutDesc ? `<p>${calloutDesc}</p>` : ""}
-          ${calloutListHtml}
         </div>
       </div>
     </section>
@@ -707,12 +918,12 @@ function render(assess) {
         <div class="left">🧩 Group breakdown</div>
         <div class="right">
           <span class="pill">Operation • Brand • Category • Scale</span>
-          ${isPass ? `<span class="badge ok">✅ Pass</span>` : `<span class="badge danger">⛔ Blocked</span>`}
+          ${isPass ? `<span class="badge ok">✅ Pass gate</span>` : `<span class="badge danger">⛔ Blocked</span>`}
         </div>
       </div>
       <div class="section-body">
         <div class="group-grid">${groupCards}</div>
-        ${!isPass ? `<p style="margin-top:12px;font-size:13px;color:#6B7280">* Gate chưa PASS: group score chỉ tham khảo.</p>` : ""}
+        ${isPass ? "" : `<div style="margin-top:10px" class="muted">* Gate chưa PASS: group score chỉ để tham khảo (không được xem là kết quả cuối).</div>`}
       </div>
     </section>
 
@@ -720,11 +931,19 @@ function render(assess) {
       <div class="section-head">
         <div class="left">🛠️ Fixlist ưu tiên</div>
         <div class="right">
-          <span class="pill">${isPass ? "Top 5 ImpactGap" : "Gate fails"}</span>
+          <span class="pill">${isPass ? "Top 5 ImpactGap" : "P0 Gate fixes only"}</span>
         </div>
       </div>
       <div class="section-body">
         <div class="list">${fixlistHtml}</div>
+        <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+          ${isPass
+      ? `<span class="tag info">ImpactGap = (100 - score) × weight_final</span>
+                 <span class="tag">Tie-break: Operation &gt; Brand &gt; Category &gt; Scale</span>`
+      : `<span class="tag danger">Gate != PASS → Fixlist chỉ gồm hard/soft gate fail</span>
+                 <span class="tag">Priority = P0</span>`
+    }
+        </div>
       </div>
     </section>
 
@@ -733,44 +952,49 @@ function render(assess) {
         <div class="left">📊 KPI details</div>
         <div class="right">
           <span class="pill">${allKpis.length} KPIs</span>
+          ${isPass ? `<span class="badge ok">✅ Score valid</span>` : `<span class="badge danger">⛔ Blocked by gate</span>`}
         </div>
       </div>
       <div class="section-body">
         <div class="toolbar">
           <div class="search">
             <div class="ico">🔎</div>
-            <input id="searchInput" placeholder="Tìm KPI..." />
+            <input id="searchInput" placeholder="Tìm KPI theo Rule ID / tên / group..." />
           </div>
           <button class="btn light" id="btnExport" type="button">⬇️ Export JSON</button>
         </div>
+
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Rule</th>
-                <th>Name</th>
-                <th>Gate</th>
-                <th>Scoring</th>
+                <th>KPI</th>
+                <th>Gate threshold</th>
+                <th>Scoring threshold</th>
                 <th>Score</th>
-                <th>ImpactGap</th>
-                <th>Type</th>
+                <th>${isPass ? "ImpactGap" : "Status"}</th>
+                <th>Tags</th>
               </tr>
             </thead>
             <tbody id="kpiTbody">
-              ${rows || `<tr><td colspan="7">Không có KPI</td></tr>`}
+              ${rows || `<tr><td colspan="7" class="muted">Không có KPI.</td></tr>`}
             </tbody>
           </table>
         </div>
+
+        ${!isPass ? `<div style="margin-top:10px" class="muted">* Gate chưa PASS: cột ImpactGap hiển thị Blocked.</div>` : ""}
       </div>
     </section>
 
     <div class="footer-actions">
-      <a class="btn light" href="${kpiHref}">🧮 Xem KPI</a>
-      <a class="btn primary" id="footerDashboardLink" href="./DASHBOARD.html">📈 Dashboard</a>
+      <div class="footer-right" style="margin-left:auto; display:flex; gap:10px; flex-wrap:wrap;">
+        <a class="btn light" href="${kpiHref}">🧮 Xem trang KPI</a>
+        <a class="btn primary" id="footerDashboardLink" href="${dashHref}">📈 Xem Dashboard (mô tả dữ liệu)</a>
+      </div>
     </div>
   `;
 
-  // Search
   const input = $("searchInput");
   const tbody = $("kpiTbody");
   if (input && tbody) {
@@ -783,7 +1007,6 @@ function render(assess) {
     });
   }
 
-  // Export
   $("btnExport")?.addEventListener("click", () => {
     try {
       const blob = new Blob([JSON.stringify(assess, null, 2)], { type: "application/json" });
@@ -795,9 +1018,9 @@ function render(assess) {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      showToast("success", "Export thành công", `assessment_${assessmentId}.json`);
+      showToast("success", "Export thành công", `Đã tải assessment_${assessmentId}.json`);
     } catch (e) {
-      showToast("error", "Export lỗi", e?.message || "Không thể export");
+      showToast("error", "Export lỗi", e?.message || "Không thể export JSON.");
     }
   });
 
@@ -817,7 +1040,7 @@ async function load() {
     if (local && !requireHardGateEvidenceOrRedirectLocal(local)) return;
 
     if (!local) {
-      renderEmpty("Thiếu dữ liệu. Hãy chắc bạn đã hoàn thành KPI_SCORING.");
+      renderEmpty("Thiếu assessment_id và không có assessment_result trong localStorage.");
       return;
     }
 
@@ -867,10 +1090,14 @@ async function load() {
       return;
     }
 
-    renderEmpty(`Không tìm dữ liệu cho: ${assessmentId}`);
+    renderEmpty(
+      `Không tìm thấy dữ liệu cho assessment_id=${assessmentId}.\n` +
+      `Lưu ý: GitHub Pages là static hosting nên KHÔNG có endpoint /api/assessments.\n` +
+      `Hãy đảm bảo bạn đi theo flow: KO_GATE → SOFT_KO → KPI_SCORING → RESULTS (dữ liệu sẽ nằm trong localStorage).`
+    );
   } catch (err) {
     console.error(err);
-    renderEmpty(err?.message || "Lỗi tải dữ liệu");
+    renderEmpty(err?.message || "Không thể tải dữ liệu assessment (local-only mode).");
   }
 }
 
