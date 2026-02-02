@@ -211,104 +211,79 @@ function tierMeta(tier) {
     case "NEAR_MALL_READY":
       return {
         label: "Near Mall-Ready",
-        cls: "info",
-        icon: "✨",
-        desc: "Rất gần chuẩn Mall – ưu tiên Fixlist Top ImpactGap.",
+        cls: "ok",
+        icon: "🟢",
+        desc: "Gần đủ điều kiện (Near Eligible); cần cải thiện thêm một chút để đạt Mall-Ready.",
       };
     case "PARTIALLY_READY":
       return {
         label: "Partially Ready",
         cls: "warn",
-        icon: "🛠️",
-        desc: "Có nền tảng nhưng chưa đủ chuẩn – cần cải thiện nhóm trọng yếu.",
+        icon: "🟡",
+        desc: "Phần nào sẵn sàng; cần cải thiện nhiều hơn để đạt quy chuẩn mall.",
       };
     case "NOT_READY":
       return {
         label: "Not Ready",
         cls: "danger",
-        icon: "⚠️",
-        desc: "Chưa sẵn sàng – cần nâng cấp toàn diện.",
+        icon: "🔴",
+        desc: "Chưa sẵn sàng; cần thực hiện nhiều cải tiến để đạt quy chuẩn assessment.",
       };
     case "GATE_BLOCKED":
       return {
         label: "Gate Blocked",
         cls: "danger",
-        icon: "⛔",
-        desc: "Bị chặn bởi gate – MRSM_Final = 0 cho đến khi PASS gate.",
+        icon: "🚫",
+        desc: "Bị chặn bởi hard/soft gate; cần xử lý các gate fail trước.",
       };
     default:
-      return { label: tier || "—", cls: "info", icon: "ℹ️", desc: "" };
+      return {
+        label: tier || "Unknown",
+        cls: "info",
+        icon: "❓",
+        desc: "Trạng thái không xác định",
+      };
   }
 }
 
 function scoreTone(score) {
-  const s = Number(score || 0);
-  if (s < 60) return { color: "#DC2626", bg: "rgba(220,38,38,.10)", label: "Cần cải thiện" };
-  return { color: "#16A34A", bg: "rgba(22,163,74,.12)", label: "Ổn" };
+  if (score >= 85) return { cls: "ok", tone: "xanh" };
+  if (score >= 70) return { cls: "warn", tone: "vàng" };
+  return { cls: "danger", tone: "đỏ" };
 }
 
-/* ============================================================
-   ✅ Gate badge mapping
-   - PASS / G0 / G1 / G2 theo logic thesis
-============================================================ */
 function gateBadge(status) {
-  if (status === "PASS") return { text: "PASS", cls: "ok", icon: "✅" };
-  if (status === "G0") return { text: "G0 – G0 – Chưa đạt điều kiện tiên quyết", cls: "danger", icon: "⛔" };
-  if (status === "G1") return { text: "G1 – G1 - Cảnh báo (Còn 7 ngày sửa)", cls: "warn", icon: "⏳" };
-  if (status === "G2") return { text: "G2 – Quá hạn thời gian khắc phục", cls: "danger", icon: "⌛" };
-  if (status === "UNKNOWN" || status === "NOT_CHECKED") return { text: "Chưa kiểm tra Gate", cls: "warn", icon: "⚠️" };
-  return { text: status || "—", cls: "info", icon: "ℹ️" };
-}
-
-/**
- * IMPORTANT UPDATE:
- * - Compliance/Legal KHÔNG còn là KPI domain nữa.
- * - Domain tie-break dùng 4 nhóm: Operation/Brand/Category/Scale.
- */
-function domainPriority(domain) {
-  switch (String(domain || "")) {
-    case "Operation":
-      return 3;
-    case "Brand":
-      return 2;
-    case "Category":
-      return 1;
-    case "Scale":
-      return 0;
+  switch (String(status || "").toUpperCase()) {
+    case "PASS":
+      return { icon: "✅", text: "PASS", cls: "ok" };
+    case "G0":
+    case "HARD_FAIL":
+    case "HARD_FAILED":
+      return { icon: "🚫", text: "Hard KO", cls: "danger" };
+    case "G1":
+    case "PENDING":
+      return { icon: "⏳", text: "Pending (G1)", cls: "warn" };
+    case "G2":
+    case "OVERDUE":
+      return { icon: "⛔", text: "Overdue (G2)", cls: "danger" };
     default:
-      return 0;
+      return { icon: "❓", text: status || "UNKNOWN", cls: "info" };
   }
 }
 
-function safeText(s) {
-  return s === null || s === undefined ? "" : String(s);
+function safeText(raw) {
+  return String(raw || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/* ============================================================
-   ✅ Empty state renderer
-   - Khi không tìm thấy assessment_id và localStorage không có dữ liệu
-============================================================ */
-function renderEmpty(reason) {
-  const main = $("mainRoot");
-  if (!main) return;
-
+function renderEmpty(msg) {
+  const main = $("mainContent") || document.body;
   main.innerHTML = `
     <section class="section">
       <div class="section-head">
-        <div class="left">🧾 RESULT</div>
-        <div class="right"><span class="pill">Empty state</span></div>
+        <div class="left">⚠️ No data</div>
       </div>
       <div class="section-body">
-        <div class="empty">
-          <div class="icon">🫥</div>
-          <h3>Không tìm thấy assessment</h3>
-          <p>${safeText(reason) || "Thiếu assessment_id hoặc dữ liệu không tồn tại."}</p>
-
-          <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
-            <a class="btn primary" href="./KPI_SCORING.html">🧮 Quay về trang KPI</a>
-            <a class="btn light" href="Homepage.html">🏠 Về Home</a>
-          </div>
-        </div>
+        <p class="muted" style="white-space:pre-wrap">${safeText(msg)}</p>
       </div>
     </section>
   `;
@@ -322,91 +297,11 @@ function kpiScoreTag(score) {
 }
 
 /* ============================================================
-   ✅ LOCAL-FIRST ADAPTER
-   - Convert localStorage assessment_result schema -> schema mà RESULTS UI dùng
+   ✅ LOCAL-FIRST ADAPTER (ENHANCED)
+   - Use AnalysisEngine.normalizeGroupName for consistent group naming
+   - Prioritize breakdown over kpis (scoring_logic saves both)
+   - Ensure weight_final is always populated, never 0 for valid KPIs
 ============================================================ */
-
-function groupOf(ruleId) {
-  if (
-    ruleId.startsWith("OP-") ||
-    ruleId.startsWith("CS-") ||
-    ruleId.startsWith("PEN-") ||
-    ruleId.startsWith("CO-")
-  )
-    return "Operation";
-
-  if (ruleId.startsWith("BR-")) return "Brand";
-  if (ruleId.startsWith("CAT-")) return "Category";
-  if (ruleId.startsWith("SC-")) return "Scale";
-  return "Operation";
-}
-
-/** UPDATED: domain = group */
-function domainOf(ruleId) {
-  return groupOf(ruleId);
-}
-
-function calcGroupsAndKpisFromLocal(local) {
-  // Ưu tiên schema mới: assessment_result.breakdown (scoring_logic.js)
-  // Backward-compat: assessment_record_local.kpis hoặc các build cũ lưu local.kpis
-  const sourceKpis = Array.isArray(local?.kpis)
-    ? local.kpis
-    : (Array.isArray(local?.breakdown) ? local.breakdown : []);
-
-  const len = sourceKpis.length || 19;
-
-  const kpis = sourceKpis
-    .map((k) => {
-      const ruleId = k.id || k.rule_id || k.kpiId;
-      if (!ruleId) return null;
-
-      const metaSSOT =
-        window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function"
-          ? window.MRSM_CONFIG.getKpiMeta(ruleId)
-          : null;
-
-      const fallbackName = metaSSOT?.name || ruleId;
-
-      // weight priority:
-      // 1) record weight_final / weight
-      // 2) MRSM_CONFIG effective weight
-      // 3) Backup effective weight
-      // 4) Even split
-      const wfRecord = Number(k.weight_final ?? k.weight ?? 0);
-      const wfSSOT = getWeightEffectiveFromConfig(ruleId);
-      const wfBackup = getWeightEffectiveFromBackup(ruleId, len);
-      const wf = wfRecord > 0 ? wfRecord : (wfSSOT > 0 ? wfSSOT : (wfBackup > 0 ? wfBackup : (1 / len)));
-
-      return {
-        rule_id: ruleId,
-        name: k.name ?? fallbackName,
-        group: groupOf(ruleId),
-        domain: domainOf(ruleId),
-        score: Number(k.score ?? 0),
-        weight_final: wf,
-        value: k.value ?? null,
-        meta: k.meta ?? metaSSOT ?? null,
-        is_gate: Boolean(k.is_gate ?? false),
-      };
-    })
-    .filter(Boolean);
-
-  // ✅ Normalize weights to avoid "all 0" or inconsistent raw-sum (ImpactGap needs stable weights)
-  const sumW = kpis.reduce((s, it) => s + (it.weight_final || 0), 0);
-  if (sumW > 0) {
-    kpis.forEach((it) => (it.weight_final = (it.weight_final || 0) / sumW));
-  }
-
-  const groups = {};
-  ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
-    const items = kpis.filter((x) => x.group === g);
-    const wsum = items.reduce((s, it) => s + (it.weight_final || 0), 0);
-    const contrib = items.reduce((s, it) => s + it.score * (it.weight_final || 0), 0);
-    groups[g] = { score: wsum > 0 ? contrib / wsum : 0, contribution: contrib };
-  });
-
-  return { kpis, groups };
-}
 
 function safeParseJson(s) {
   try {
@@ -532,12 +427,102 @@ function bestEffortShopInfo(local) {
   };
 }
 
+/**
+ * ✅ FIX: Use AnalysisEngine for consistent normalization
+ * - Priority: breakdown > kpis (scoring_logic saves breakdown first)
+ * - Ensure group names are normalized to EN (Operation/Brand/Category/Scale)
+ * - Normalize weight_final to sum=1 to avoid 0 contribution
+ */
+function calcGroupsAndKpisFromLocal(local) {
+  // ✅ FIX #1: Prioritize breakdown (from scoring_logic) over kpis
+  const sourceKpis = Array.isArray(local?.breakdown)
+    ? local.breakdown
+    : (Array.isArray(local?.kpis) ? local.kpis : []);
+
+  if (!Array.isArray(sourceKpis) || sourceKpis.length === 0) {
+    return { kpis: [], groups: {} };
+  }
+
+  const len = sourceKpis.length || 19;
+
+  let kpis = sourceKpis
+    .map((k) => {
+      const ruleId = k.id || k.rule_id || k.kpiId;
+      if (!ruleId) return null;
+
+      const metaSSOT =
+        window.MRSM_CONFIG && typeof window.MRSM_CONFIG.getKpiMeta === "function"
+          ? window.MRSM_CONFIG.getKpiMeta(ruleId)
+          : null;
+
+      const fallbackName = metaSSOT?.name || ruleId;
+
+      // ✅ FIX #2: weight priority - ensure never 0 for valid KPI
+      // 1) record weight_final / weight
+      // 2) MRSM_CONFIG effective weight
+      // 3) Backup effective weight
+      // 4) Even split
+      const wfRecord = Number(k.weight_final ?? k.weight ?? 0);
+      const wfSSOT = getWeightEffectiveFromConfig(ruleId);
+      const wfBackup = getWeightEffectiveFromBackup(ruleId, len);
+      const wf = wfRecord > 0 ? wfRecord : (wfSSOT > 0 ? wfSSOT : (wfBackup > 0 ? wfBackup : (1 / len)));
+
+      // ✅ FIX #3: Use AnalysisEngine.normalizeGroupName if available, else fallback
+      let group = k.group || "";
+      if (window.AnalysisEngine && typeof window.AnalysisEngine.normalizeGroupName === "function") {
+        group = window.AnalysisEngine.normalizeGroupName(group) || window.AnalysisEngine.defaultGroupOf(ruleId);
+      } else {
+        // Manual fallback group assignment
+        group = group || (
+          ruleId.startsWith("OP-") || ruleId.startsWith("CS-") || ruleId.startsWith("PEN-") || ruleId.startsWith("CO-")
+            ? "Operation"
+            : (ruleId.startsWith("BR-") ? "Brand" :
+              (ruleId.startsWith("CAT-") ? "Category" :
+                (ruleId.startsWith("SC-") ? "Scale" : "Operation")))
+        );
+      }
+
+      return {
+        rule_id: ruleId,
+        name: k.name ?? fallbackName,
+        group,
+        domain: group, // domain = group for compatibility
+        score: Number(k.score ?? 0),
+        weight_final: wf,
+        value: k.value ?? null,
+        meta: k.meta ?? metaSSOT ?? null,
+        is_gate: Boolean(k.is_gate ?? false),
+      };
+    })
+    .filter(Boolean);
+
+  // ✅ FIX #4: Normalize weights so sum=1 (stable ImpactGap)
+  const sumW = kpis.reduce((s, it) => s + (it.weight_final || 0), 0);
+  if (sumW > 0) {
+    kpis.forEach((it) => (it.weight_final = (it.weight_final || 0) / sumW));
+  }
+
+  // ✅ FIX #5: Calculate group breakdown with normalized weights
+  const groups = {};
+  ["Operation", "Brand", "Category", "Scale"].forEach((g) => {
+    const items = kpis.filter((x) => x.group === g);
+    const wsum = items.reduce((s, it) => s + (it.weight_final || 0), 0);
+    const contrib = items.reduce((s, it) => s + it.score * (it.weight_final || 0), 0);
+    groups[g] = { 
+      score: wsum > 0 ? contrib / wsum : 0, 
+      contribution: contrib 
+    };
+  });
+
+  return { kpis, groups };
+}
+
 function adaptLocalAssessment(local, forcedAssessmentId) {
   const computedAt = local.computedAt || new Date().toISOString();
   const { kpis, groups } = calcGroupsAndKpisFromLocal(local);
   const shop = bestEffortShopInfo(local);
 
-  // Gate status có thể được tạo bởi KO pages; nếu thiếu thì default PASS
+  // Gate status có thể được tạo bởi KO pages; nếu thiếu thì default UNKNOWN (not PASS)
   const localGateStatus = local?.gate?.status || local?.gateStatus || local?.gate_status || local?.gate_state || "UNKNOWN";
 
   const localHardFailed = local?.gate?.hard?.failed_rules || local?.hard_failed_rules || local?.hardFailedRules || [];
@@ -550,7 +535,7 @@ function adaptLocalAssessment(local, forcedAssessmentId) {
   const totalScore = Number(local.totalScore ?? 0);
 
   return {
-    assessment_id: "LOCAL_" + computedAt.replace(/[:.]/g, ""),
+    assessment_id: forcedAssessmentId || ("LOCAL_" + computedAt.replace(/[:.]/g, "")),
     evaluated_at: computedAt,
     shop,
 
@@ -681,277 +666,178 @@ function render(assess) {
     `;
   }
 
-  if (gateStatus === "PASS") {
-    calloutCls = "ok";
-    calloutDesc = "Gate đã PASS. MRSM_Final được tính theo Weighted Sum Model và tier theo ngưỡng điểm.";
-    calloutListHtml = `
-      <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap">
-        <span class="tag ok">0–49: NOT_READY</span>
-        <span class="tag warn">50–69: PARTIALLY_READY</span>
-        <span class="tag info">70–84: NEAR_MALL_READY</span>
-        <span class="tag ok">≥85: MALL_READY</span>
+  const calloutHtml = `
+    <div class="callout ${calloutCls}">
+      <div class="callout-head">${calloutTitle}</div>
+      <div class="callout-body">
+        ${calloutDesc ? `<p>${calloutDesc}</p>` : ""}
+        ${calloutListHtml}
       </div>
-    `;
-  }
+    </div>
+  `;
 
-  const groups = assess.groups || {};
-  const groupOrder = ["Operation", "Brand", "Category", "Scale"];
-  const groupCards = groupOrder
-    .map((g) => {
-      const s = Number(groups?.[g]?.score ?? 0);
-      const c = Number(groups?.[g]?.contribution ?? 0);
-      const blockedCls = isPass ? "" : "blocked";
-      return `
-      <div class="gcard ${blockedCls}">
-        <div class="t"><span class="chip"></span>${g}</div>
-        <div class="s">
-          <div class="val">${Math.round(s)}</div>
-          <div class="contrib">Contribution: <span class="mono">${c.toFixed(2)}</span></div>
-        </div>
+  const tierM_cls = tierM.cls || "info";
+  const scoreHtml = isPass
+    ? `<div class="big ${tone.cls}">${Math.round(finalScore)}</div>`
+    : `<div class="big danger">—</div>`;
+
+  const cardHead = `
+    <div class="card-head">
+      <div class="left">
+        <div class="tiny" style="color:#999">MRSM final score</div>
+        <div>${scoreHtml}</div>
       </div>
-    `;
+      <div class="right" style="display:flex;flex-direction:column;gap:8px">
+        <div class="tier-badge ${tierM_cls}">
+          <div class="icon">${tierM.icon}</div>
+          <div class="text">${tierM.label}</div>
+        </div>
+        <div class="tiny" style="color:#999;text-align:right">${tierM.desc}</div>
+      </div>
+    </div>
+  `;
+
+  const groupCards = ["Operation", "Brand", "Category", "Scale"]
+    .map((g) => {
+      const data = assess.groups?.[g] || { score: 0, contribution: 0 };
+      const blocked = !isPass ? " blocked" : "";
+      const scoreVal = isPass ? Math.round(data.score) : 0;
+      return `
+        <div class="group-card${blocked}">
+          <div class="label">${g}</div>
+          <div class="score">${scoreVal}</div>
+          <div class="tiny" style="color:#999">weight: ${(data.contribution || 0).toFixed(2)}</div>
+        </div>
+      `;
     })
     .join("");
 
-  let fixItems = [];
-  if (!isPass) {
-    const hard = hardFailed.map((r) => ({
-      id: r,
-      name: "Hard KO failed",
-      domain: "Operation",
-      score: 0,
-      weight_final: 0,
-      impact: null,
-      note: "Fix Hard KO để mở gate.",
-    }));
-    const soft = softFailedIds.map((id) => ({
-      id,
-      name: "Soft KO failed",
-      domain: "Operation",
-      score: 0,
-      weight_final: 0,
-      impact: null,
-      note: softItems?.[id]?.note || "Fix Soft KO trong remediation window.",
-    }));
-    fixItems = [...hard, ...soft].map((x) => ({ ...x, priority: "P0" }));
-  } else {
-    const kpis = Array.isArray(assess.kpis) ? assess.kpis : [];
-    fixItems = kpis
-      .map((k) => {
-        const score = Number(k.score ?? 0);
-        const w = Number(k.weight_final ?? 0);
-        const impact = (100 - score) * w;
-        return {
-          id: k.rule_id,
+  const allKpis = assess.kpis || [];
+
+  const fixlist = isPass
+    ? (() => {
+      // ✅ Compute ImpactGap = (100 - score) × weight_final
+      const gap = allKpis
+        .map((k) => ({
+          rule_id: k.rule_id,
+          group: k.group,
           name: k.name,
-          domain: k.domain || k.group || "",
-          score,
-          weight_final: w,
-          impact,
-          priority: null,
-          group: k.group || "",
-        };
-      })
-      .sort((a, b) => {
-        if ((b.impact ?? 0) !== (a.impact ?? 0)) return (b.impact ?? 0) - (a.impact ?? 0);
-        const dp = domainPriority(b.domain) - domainPriority(a.domain);
-        if (dp !== 0) return dp;
-        return String(a.id).localeCompare(String(b.id));
-      })
-      .slice(0, 5)
-      .map((x) => ({ ...x, priority: "P1" }));
-  }
+          score: k.score,
+          weight: k.weight_final,
+          impact: (100 - k.score) * k.weight_final,
+        }))
+        .filter((x) => x.impact > 0)
+        .sort((a, b) => {
+          // Tie-break: Operation > Brand > Category > Scale
+          const groupOrder = { "Operation": 0, "Brand": 1, "Category": 2, "Scale": 3 };
+          const orderDiff = groupOrder[a.group] - groupOrder[b.group];
+          if (orderDiff !== 0) return orderDiff;
+          return b.impact - a.impact;
+        })
+        .slice(0, 5);
 
-  const fixlistHtml = fixItems.length
-    ? fixItems
-      .map((item) => {
-        const impactText = isPass
-          ? `ImpactGap: <span class="mono">${(item.impact ?? 0).toFixed(4)}</span> • w=${(item.weight_final ?? 0).toFixed(
-            4
-          )} • score=${item.score}`
-          : "";
-        const sub = isPass
-          ? `${safeText(item.name)} • ${safeText(item.group || "")} • ${safeText(item.domain || "")}`
-          : `${safeText(item.note || item.name)}`;
-        return `
-      <div class="li">
-        <div class="left">
-          <div class="title"><span class="mono">${safeText(item.id)}</span> ${isPass ? kpiScoreTag(item.score) : ""}</div>
-          <div class="desc">${sub}${impactText ? ` • ${impactText}` : ""}</div>
+      return gap;
+    })()
+    : (() => {
+      // ✅ When gate != PASS: show hard KO fail + soft KO fail
+      const hardIds = hardFailed || [];
+      const softIds = softFailedIds || [];
+      const allFailedIds = [...new Set([...hardIds, ...softIds])];
+
+      return allFailedIds
+        .map((id) => {
+          const kpiObj = allKpis.find((k) => k.rule_id === id);
+          if (!kpiObj) return null;
+
+          const isHardFail = hardIds.includes(id);
+          const isSoftFail = softIds.includes(id);
+
+          return {
+            rule_id: id,
+            group: kpiObj.group,
+            name: kpiObj.name,
+            score: kpiObj.score,
+            weight: kpiObj.weight_final,
+            impact: 0,
+            gateType: isHardFail ? "Hard KO" : (isSoftFail ? "Soft KO" : "Gate"),
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 5);
+    })();
+
+  const fixlistHtml = fixlist
+    .map(
+      (item) => `
+        <div class="li">
+          <div class="left">
+            <div class="title mono">${safeText(item.rule_id)}</div>
+            <div class="desc">${safeText(item.name)}</div>
+          </div>
+          <div class="mid">
+            <div class="tiny" style="color:#999">${item.group}</div>
+            ${isPass
+        ? `<div class="tiny">ImpactGap: <b>${item.impact.toFixed(2)}</b></div>`
+        : `<div class="tiny">${item.gateType || "Gate"}</div>`
+      }
+          </div>
+          <div class="right">
+            ${isPass ? `<span class="tag danger">${item.score}</span>` : `<span class="tag danger">Gate</span>`}
+          </div>
         </div>
-        <div class="prio">${safeText(item.priority)}</div>
-      </div>
-    `;
-      })
-      .join("")
-    : `<div class="muted">Không có item.</div>`;
-
-  const allKpis = Array.isArray(assess.kpis) ? assess.kpis : [];
+      `
+    )
+    .join("");
 
   const rows = allKpis
     .map((k) => {
-      const score = Number(k.score ?? 0);
-      const w = Number(k.weight_final ?? 0);
-      const impact = (100 - score) * w;
-      const scoreTag = kpiScoreTag(score);
-      const groupTag = `<span class="tag">${safeText(k.group || "—")}</span>`;
-      const domainTag = `<span class="tag">${safeText(k.domain || "—")}</span>`;
-      const impactTag = isPass
-        ? `<span class="tag info"><span class="mono">${impact.toFixed(4)}</span></span>`
-        : `<span class="tag danger">Blocked</span>`;
+      const impactGapVal = isPass ? ((100 - k.score) * k.weight_final).toFixed(2) : "Blocked";
+      const impactGapHtml = isPass
+        ? `<td>${impactGapVal}</td>`
+        : `<td><span class="tag danger">Blocked</span></td>`;
 
-      // ✅ HYBRID AUDIT (CAT-02)
-      let auditHtml = "";
-      if (k.rule_id === "CAT-02" && k.meta && typeof k.meta.auto_score === "number") {
-        const autoS = Number(k.meta.auto_score);
-        const finalS = Number(k.meta.final_score ?? score);
-        const ov = !!k.meta.override_applied;
-        const reason = safeText(k.meta.override_reason || "");
-        const files =
-          k.value && (k.value.whiteFile || k.value.lifeFile)
-            ? ` • <span class="muted">Files:</span> ${safeText(k.value.whiteFile || "—")} | ${safeText(k.value.lifeFile || "—")}`
-            : "";
+      const tagClass = kpiClassificationTag(k);
+      const isHardFail = hardFailed.includes(k.rule_id);
+      const isSoftFail = softFailedIds.includes(k.rule_id);
+      const extraTags = isHardFail
+        ? `<span class="tag danger">Hard KO</span>`
+        : (isSoftFail ? `<span class="tag warn">Soft KO</span>` : "");
 
-        auditHtml = `
-        <div class="kpi-sub" style="margin-top:4px">
-          <span class="mono">AUTO=${autoS}</span> •
-          <span class="mono">FINAL=${finalS}</span>
-          ${ov ? `• <span class="tag warn small">OVERRIDE</span>` : `• <span class="tag ok small">AUTO</span>`}
-          ${ov && reason ? `• <span class="muted">Reason:</span> ${safeText(reason)}` : ``}
-          ${files}
-        </div>
-      `;
-      }
-
-      // ✅ KPI Classification badge (Mandatory/Gate vs Improvement/KPI)
-      const classifTag = kpiClassificationTag(k);
-      const classifHtml = `<span class="tag ${classifTag.cls}" title="${classifTag.tooltip}">${classifTag.label}</span>`;
+      const q = `${k.rule_id} ${k.name} ${k.group}`.toLowerCase();
 
       return `
-      
-      <tr data-q="${(safeText(k.rule_id) + " " + safeText(k.name) + " " + safeText(k.group) + " " + safeText(k.domain)).toLowerCase()}">
-        <td>
-          <div class="kpi-id mono">${safeText(k.rule_id)}</div>
-          <span class="kpi-sub mono">w=${w.toFixed(4)}</span>
-        </td>
-        <td>
-          <div class="kpi-name">${safeText(k.name)}</div>
-          <span class="kpi-sub">${safeText(k.group || "—")} • ${safeText(k.domain || "—")}</span>
-          ${classifHtml}
-          ${auditHtml}
-        </td>
-
-        ${(() => {
-          const gateTh = (window.MRSM_GATE_THRESHOLDS && window.MRSM_GATE_THRESHOLDS[k.rule_id]) ? window.MRSM_GATE_THRESHOLDS[k.rule_id] : null;
-          const scoreTh = k.score_threshold || null;
-
-          const gateText = gateTh
-            ? `${gateTh.direction === "min" ? "≥" : "≤"} ${gateTh.threshold}${gateTh.unit || ""}`
-            : "—";
-
-          const scoreText = scoreTh
-            ? (scoreTh.direction === "GE"
-              ? `100đ: ≥${scoreTh.t1}, 50đ: ≥${scoreTh.t2}`
-              : `100đ: ≤${scoreTh.t1}, 50đ: ≤${scoreTh.t2}`)
-            : "—";
-
-          const gateTip = gateTh ? `Gate (constraint): không đạt → MRSM_Final bị block/0` : "";
-          const scoreTip = scoreTh ? `Scoring (utility): ảnh hưởng điểm, không chặn gate` : "";
-
-          return `
-            <td title="${gateTip}"><span class="tag ${gateTh ? "danger" : ""}">${gateText}</span></td>
-            <td title="${scoreTip}"><span class="tag ${scoreTh ? "info" : ""}">${scoreText}</span></td>
-          `;
-        })()}
-
-        <td>${scoreTag}</td>
-        <td>${impactTag}</td>
-        <td>${groupTag} ${domainTag}</td>
-      </tr>
-    `;
+        <tr data-q="${q}">
+          <td><span class="mono">${safeText(k.rule_id)}</span></td>
+          <td>${safeText(k.name)}</td>
+          <td>
+            ${k.gateThreshold !== undefined ? `<span class="tag danger">${safeText(k.gateThreshold)}</span>` : "-"}
+          </td>
+          <td>t1=${Number(k.meta?.t1 ?? k.t1 ?? "-")}, t2=${Number(k.meta?.t2 ?? k.t2 ?? "-")}</td>
+          <td>${kpiScoreTag(k.score)}</td>
+          ${impactGapHtml}
+          <td>
+            <span class="tag ${tagClass.cls}" title="${tagClass.tooltip}">${tagClass.label}</span>
+            ${extraTags}
+          </td>
+        </tr>
+      `;
     })
     .join("");
 
-  // ✅ Link Dashboard: nếu offline/file:// -> tự sang mode=local
-  const dashHref = withAssessmentId("./DASHBOARD.html", assess.assessment_id);
-  const kpiHref = withAssessmentId("./KPI_SCORING.html", assess.assessment_id) + "&restore_draft=1";
+  const dashHref = syncDashboardLinks(assessmentId) || `./DASHBOARD.html?mode=local`;
+  const kpiHref = `./KPI_SCORING.html?assessment_id=${encodeURIComponent(assessmentId || "")}`;
 
-  const main = $("mainRoot");
-  if (!main) return;
-
-  // ✅ Render toàn bộ layout trang RESULTS
-  main.innerHTML = `
+  $("mainContent").innerHTML = `
     <section class="section">
       <div class="section-head">
-        <div class="left">📌 Tổng quan kết quả</div>
+        <div class="left">📊 Assessment Result</div>
         <div class="right">
-          <span class="badge big ${gateB.cls}">${gateB.icon} ${gateB.text}</span>
-          <span class="badge big ${tierM.cls}">${tierM.icon} Tier: ${tierM.label}</span>
+          <span class="pill">${evaluatedAt}</span>
         </div>
       </div>
-
       <div class="section-body">
-        <div class="hero">
-          <div class="hero-card">
-            <div class="hero-top">
-              <div class="hero-title">
-                <div class="h"><span class="dot"></span> MRSM_Final</div>
-                <div class="sub">
-                  <span><span class="muted">Assessment:</span> <span class="mono">${safeText(assessmentId)}</span></span>
-                  <span><span class="muted">Evaluated at:</span> <span class="mono">${safeText(evaluatedAt)}</span></span>
-                </div>
-              </div>
-              <span class="pill big">${isPass ? "Gate PASS → Score valid" : "Gate not PASS → Score forced 0"}</span>
-            </div>
-
-            <div style="margin-top:14px; padding:14px; border-radius:16px; border:1px solid #eee;">
-              <div style="display:flex; align-items:baseline; gap:10px;">
-                <div style="font-size:56px; font-weight:1000; color:${tone.color}; line-height:1;">
-                  ${Number.isFinite(finalScore) ? Math.round(finalScore) : 0}
-                </div>
-                <div style="font-weight:900; color:#6B7280">/100</div>
-                <span style="margin-left:auto; padding:6px 10px; border-radius:999px; font-weight:1000; background:${tone.bg}; color:${tone.color};">
-                  ${tone.label}
-                </span>
-              </div>
-
-              <div style="margin-top:12px; height:12px; background:#E5E7EB; border-radius:999px; overflow:hidden;">
-                <div style="height:100%; width:${Math.max(0, Math.min(100, finalScore))}%; background:${tone.color}; border-radius:999px;"></div>
-              </div>
-
-              <div style="margin-top:8px; color:#6B7280; font-size:12px; font-weight:700;">
-                Ngưỡng màu: <b>&lt;60</b> đỏ • <b>≥60</b> xanh
-              </div>
-            </div>
-
-            <div style="margin-top:10px" class="muted">${safeText(tierM.desc)}</div>
-
-            <div class="kv">
-              <div class="item"><div class="k">Shop</div><div class="v">${safeText(shopName)}</div></div>
-              <div class="item"><div class="k">Shop ID</div><div class="v mono">${safeText(shopId)}</div></div>
-              <div class="item"><div class="k">Assessment ID</div><div class="v mono">${safeText(assessmentId)}</div></div>
-              <div class="item"><div class="k">Gate status</div><div class="v">${gateB.icon} ${gateB.text}</div></div>
-            </div>
-          </div>
-
-          <div class="hero-card">
-            <div class="callout ${calloutCls}">
-              <h4>${calloutTitle}</h4>
-              <p>${safeText(calloutDesc)}</p>
-              ${calloutListHtml}
-            </div>
-
-            <div style="height:12px"></div>
-
-            <div class="callout info">
-              <h4>ℹ️ Quy tắc hiển thị (thesis-aligned)</h4>
-              <p>
-                <b>Không</b> dùng group score làm “kết quả cuối” khi gate chưa PASS.
-                Group có thể hiển thị nhưng sẽ bị gắn nhãn <b>Blocked by gate</b>.
-              </p>
-            </div>
-          </div>
-        </div>
+        <div class="card">${cardHead}</div>
+        ${calloutHtml}
       </div>
     </section>
 
