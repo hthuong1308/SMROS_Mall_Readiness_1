@@ -128,7 +128,6 @@
             flex: 1;
         }
 
-
         /* Main Content */
         .assessment-content {
             max-width: 1280px;
@@ -270,7 +269,7 @@
             border-color: #FECACA;
         }
 
-        /* JS render list: support both progress-item + checklist-item styles */
+        /* JS render list */
         #progressList {
             list-style: none;
             padding: 0;
@@ -465,7 +464,7 @@
             line-height: 1.5;
         }
 
-        /* Upload Section (same skeleton as KO_GATE cũ) */
+        /* Upload Section */
         .upload-row-enhanced {
             display: grid;
             grid-template-columns: 1fr 360px;
@@ -566,13 +565,37 @@
             display: flex;
             align-items: center;
             gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        /* ✅ NEW: Make KO-05/06/07 inputs match Shop info style */
+        .input-with-status input,
+        .input-with-status select {
+            padding: 14px 16px;
+            border: 2px solid #E5E7EB;
+            border-radius: 8px;
+            font-size: 16px;
+            color: #111827;
+            transition: all 0.2s;
+            background: #fff;
+            flex: 1;
+            min-width: 240px;
+        }
+
+        .input-with-status input:focus,
+        .input-with-status select:focus {
+            outline: none;
+            border-color: #EE4D2D;
+            box-shadow: 0 0 0 3px rgba(238, 77, 45, 0.10);
         }
 
         .status-badge {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
-            padding: 8px 10px;
+            padding: 0 14px;
+            min-height: 52px;
             border-radius: 999px;
             font-size: 12px;
             font-weight: 900;
@@ -580,6 +603,7 @@
             color: #6B7280;
             border: 1px solid #E5E7EB;
             white-space: nowrap;
+            flex: 0 0 auto;
         }
 
         .status-badge.valid {
@@ -670,7 +694,7 @@
             color: #991B1B;
         }
 
-        /* Form Actions (same as SOFT_KO) */
+        /* Form Actions */
         .form-actions {
             display: flex;
             justify-content: space-between;
@@ -761,7 +785,7 @@
             background: #FEE2E2;
         }
 
-        /* Modal + Toast (keep IDs) */
+        /* Modal + Toast */
         .toast {
             position: fixed;
             right: 16px;
@@ -911,6 +935,17 @@
             .submit-button {
                 width: 100%;
                 justify-content: center;
+            }
+
+            /* ✅ Keep KO input + badge from overflowing */
+            .input-with-status input,
+            .input-with-status select {
+                min-width: 0;
+                width: 100%;
+            }
+
+            .status-badge {
+                width: 100%;
             }
         }
     </style>
@@ -1280,7 +1315,6 @@
                             </div>
                         </div>
 
-
                         <!-- Final status -->
                         <div class="final-status-box" style="margin-top: 12px;">
                             <div class="final-msg" id="finalMsg">Chưa kiểm tra Hard KO</div>
@@ -1328,4 +1362,3 @@
 </body>
 
 </html>
-
