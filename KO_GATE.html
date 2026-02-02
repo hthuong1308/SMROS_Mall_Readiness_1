@@ -110,6 +110,25 @@
             background: #EE4D2D;
         }
 
+        .progress-item {
+            overflow: hidden;
+            max-width: 100%;
+        }
+
+        .progress-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .progress-text {
+            min-width: 0;
+            flex: 1;
+        }
+
+
         /* Main Content */
         .assessment-content {
             max-width: 1280px;
@@ -958,6 +977,7 @@
 
                     <div class="mini-actions">
                         <button class="mini-btn" id="btnReset" type="button">↩️ Reset form</button>
+                        <button class="mini-btn danger" id="btnExport" type="button">⬇️ Export JSON</button>
                     </div>
                 </div>
             </div>
@@ -1223,18 +1243,28 @@
                         <!-- KO-07 -->
                         <div class="upload-row-enhanced" data-rule="KO-07">
                             <div class="upload-section">
-                                <div class="upload-title">KO-07: Domain hợp lệ + DNS A record + Website còn hiệu lực
-                                    &gt; 6 tháng <span class="required">*</span></div>
+                                <div class="upload-title">
+                                    KO-07: Website hợp lệ + Website còn hiệu lực &gt; 6 tháng <span
+                                        class="required">*</span>
+                                </div>
 
+                                <!-- Ô 1: Link website -->
+                                <div class="input-with-status" style="margin-bottom:10px;">
+                                    <input id="ko07_link" type="text"
+                                        placeholder="Link website (ví dụ: https://supercheap.vn hoặc supercheap.vn)" />
+                                </div>
+
+                                <!-- Ô 2: Tháng hiệu lực + status -->
                                 <div class="input-with-status" style="margin-bottom:10px;">
                                     <input id="ko07_months" min="0" type="number"
-                                        placeholder="Số tháng hiệu lực của Website (ví dụ: 12)" />
+                                        placeholder="Số tháng còn hiệu lực của Website (ví dụ: 12)" />
                                     <span class="status-badge" id="ko07_status">CHƯA KIỂM TRA</span>
                                 </div>
 
                                 <div class="helper">
-                                    Hệ thống sẽ normalize domain (xóa http/https, www, path…) và verify DNS A record.
-                                    Đồng thời yêu cầu website còn hiệu lực &gt; 6 tháng.
+                                    Điều kiện pass KO-07: (1) Link website hợp lệ & hoạt động (check best-effort) + DNS
+                                    A record,
+                                    (2) Website còn hiệu lực &gt; 6 tháng.
                                 </div>
                             </div>
 
@@ -1242,7 +1272,7 @@
                                 <h4>Hướng dẫn tìm thời gian hiệu lực</h4>
                                 <div class="guide-body">
                                     <div class="guide-caption">
-                                        <b>B1:</b> Truy cập trang <b>matbao.net</b><br />
+                                        <b>B1:</b> Truy cập trang <b>https://www.matbao.net/</b><br />
                                         <b>B2:</b> Tìm kiếm bằng tên miền của shop (bỏ https, chỉ để dạng
                                         <b>xxx.vn</b>)<br />
                                         <b>B3:</b> Bấm <b>“Xem thông tin miền”</b> và lấy số tháng còn hiệu lực.
@@ -1250,6 +1280,7 @@
                                 </div>
                             </div>
                         </div>
+
 
                         <!-- Final status -->
                         <div class="final-status-box" style="margin-top: 12px;">
@@ -1298,4 +1329,3 @@
 </body>
 
 </html>
-
