@@ -653,16 +653,6 @@
     URL.revokeObjectURL(url);
   }
 
-  function exportDebugJSON() {
-    const data = {
-      validatedHardKO: safeParse(sessionStorage.getItem("validatedHardKO")),
-      soft_ko_gate: safeParse(localStorage.getItem("soft_ko_gate")),
-      current_assessment_id: sessionStorage.getItem("current_assessment_id") || "",
-      computedAt: new Date().toISOString()
-    };
-    downloadJSON("KO_GATE_debug.json", data);
-    showToast("success", "Export thành công", "Đã tải KO_GATE_debug.json");
-  }
 
   function safeParse(raw) {
     try { return raw ? JSON.parse(raw) : null; } catch { return null; }
@@ -817,3 +807,4 @@
   });
 
 })();
+
