@@ -475,30 +475,6 @@
     try { return raw ? JSON.parse(raw) : null; } catch { return null; }
   }
 
-  function downloadJSON(filename, obj) {
-    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  function exportDebugJSON() {
-    const data = {
-      validatedHardKO: safeParse(sessionStorage.getItem("validatedHardKO")),
-      soft_ko_gate: safeParse(localStorage.getItem("soft_ko_gate")),
-      current_assessment_id: sessionStorage.getItem("current_assessment_id") || "",
-      computedAt: new Date().toISOString(),
-      validationState,
-    };
-    downloadJSON("KO_GATE_debug.json", data);
-    showToast("success", "Export thành công", "Đã tải KO_GATE_debug.json");
-  }
-
   function cacheHardEvidenceLocal(assessmentId, hardObj) {
     try {
       if (!assessmentId || !hardObj) return false;
@@ -767,3 +743,4 @@
   });
 
 })();
+
