@@ -1299,10 +1299,10 @@ function bindEvents() {
             saveDraftNow();
 
             saveAndRedirect({
-                ...result,
-                computedAt: new Date().toISOString(),
-                version: "MRSM_WSM_v2"
-            });
+  ...result,
+  computedAt: new Date().toISOString(),
+  version: "MRSM_WSM_v2"
+});
         });
     }
     // Reset draft
@@ -1454,3 +1454,4 @@ document.addEventListener("DOMContentLoaded", () => {
     // If there is a saved draft (but not auto-filled), offer a restore button
     injectRestoreDraftButton();
 });
+
