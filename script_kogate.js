@@ -7,7 +7,7 @@
  *  - KO-05: months validity > 6
  *  - KO-06: must choose "Có"
  *  - KO-07: (1) website link valid + best-effort reachable + DNS A record
- *           (2) website validity months > 12
+ *           (2) website validity months > 6
  *
  * PASS => save sessionStorage.validatedHardKO + init localStorage.soft_ko_gate
  *      => modal countdown then redirect SOFT_KO.html?assessment_id=...
@@ -107,7 +107,7 @@
     ko04: false,
     ko05: false,
     ko06: false,
-    ko07: false, // composed: link reachable + DNS A + months> 12
+    ko07: false, // composed: link reachable + DNS A + months>6
   };
 
   let redirectTimer = { tick: null, done: null };
@@ -878,5 +878,3 @@
   });
 
 })();
-
-
