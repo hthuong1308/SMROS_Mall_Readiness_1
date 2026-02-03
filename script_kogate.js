@@ -7,7 +7,7 @@
  *  - KO-05: months validity > 6
  *  - KO-06: must choose "Có"
  *  - KO-07: (1) website link valid + best-effort reachable + DNS A record
- *           (2) website validity months > 6
+ *           (2) website validity months > 12
  *
  * PASS => save sessionStorage.validatedHardKO + init localStorage.soft_ko_gate
  *      => modal countdown then redirect SOFT_KO.html?assessment_id=...
@@ -295,7 +295,7 @@
       { key: "ko04", label: "KO-04: CBSP", statusId: IDS.ko04_status },
       { key: "ko05", label: "KO-05: Hiệu lực giấy tờ > 6 tháng", statusId: IDS.ko05_status },
       { key: "ko06", label: "KO-06: Không vi phạm nghiêm trọng", statusId: IDS.ko06_status },
-      { key: "ko07", label: "KO-07: Website + DNS A + hiệu lực > 6 tháng", statusId: IDS.ko07_status },
+      { key: "ko07", label: "KO-07: Website + DNS A + hiệu lực > 12 tháng", statusId: IDS.ko07_status },
     ];
 
     const failed = items
@@ -413,9 +413,9 @@
     }
 
     // months check
-    if (Number.isNaN(months) || months <= 6) {
+    if (Number.isNaN(months) || months <= 12) {
       validationState.ko07 = false;
-      setStatusBadge(IDS.ko07_status, false, "(Hiệu lực website > 6 tháng)");
+      setStatusBadge(IDS.ko07_status, false, "(Hiệu lực website > 12 tháng)");
       return false;
     }
 
@@ -475,7 +475,7 @@
       { key: "ko04", label: "KO-04: CBSP (PDF + keyword)" },
       { key: "ko05", label: "KO-05: Hiệu lực giấy tờ > 6 tháng" },
       { key: "ko06", label: "KO-06: Không vi phạm nghiêm trọng (Có)" },
-      { key: "ko07", label: "KO-07: Link hoạt động + DNS A + Website > 6 tháng" },
+      { key: "ko07", label: "KO-07: Link hoạt động + DNS A + Website > 12 tháng" },
     ];
 
     list.innerHTML = items.map(it => {
@@ -878,3 +878,4 @@
   });
 
 })();
+
