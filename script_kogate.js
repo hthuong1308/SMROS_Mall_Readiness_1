@@ -107,7 +107,7 @@
     ko04: false,
     ko05: false,
     ko06: false,
-    ko07: false, // composed: link reachable + DNS A + months>6
+    ko07: false, // composed: link reachable + DNS A + months> 12
   };
 
   let redirectTimer = { tick: null, done: null };
@@ -878,4 +878,5 @@
   });
 
 })();
+
 
