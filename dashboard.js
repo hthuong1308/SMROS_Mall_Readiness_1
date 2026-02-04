@@ -13,6 +13,20 @@
 (() => {
     "use strict";
 
+    // =========================================================
+    // Fail-safe: never keep loading overlay stuck on JS errors
+    // =========================================================
+    function __dashboardFailSafeHideLoading() {
+        try {
+            const overlay = document.getElementById("loadingOverlay");
+            if (overlay) overlay.style.display = "none";
+            document.body && document.body.classList.remove("is-loading");
+        } catch (_) { }
+    }
+    window.addEventListener("error", () => __dashboardFailSafeHideLoading());
+    window.addEventListener("unhandledrejection", () => __dashboardFailSafeHideLoading());
+
+
     // ========================
     // DOM helpers / State
     // ========================
