@@ -1676,67 +1676,115 @@
         // Fixlist click is bound in renderFixlist
     }
 
-    function openKpiModal(kpiIdRaw) {
-        const kpiId = normalizeKpiId(kpiIdRaw);
+    
+    function openKpiModal(kpiId) {
         if (!kpiId) return;
+        kpiId = normalizeKpiId(kpiId);
 
         const modal = $("kpiModal");
-        const titleEl = $("modalTitle");
-        const bodyEl = $("modalBody");
-        if (!modal || !titleEl || !bodyEl) return;
+        const title = $("modalTitle");
+        const body = $("modalBody");
+        if (!modal || !title || !body) return;
 
         const item =
             (allKpis || []).find((x) => normalizeKpiId(x) === kpiId) ||
-            (fixlistItems || []).find((x) => normalizeKpiId(x?.kpiId) === kpiId);
+            (Array.isArray(fixlistItems) ? fixlistItems.find((x) => normalizeKpiId(x) === kpiId || x.kpiId === kpiId) : null);
 
         if (!item) return;
 
+        // ✅ recommendation.js defines window.RECOMMENDATIONS (NOT MRSM_RECOMMENDATIONS)
         const rec = getRecommendation(kpiId);
-        const score = Math.round(Number(item?.score ?? 0));
-        const w = Number(item?.weight_final ?? item?.weight ?? 0);
+
+        const groupName = normalizeGroupName(item.group) || groupOf(kpiId);
+        const score = Math.round(Number(item.score ?? 0));
+        const weight = round2(Number(item.weight_final ?? item.weight ?? 0));
         const impactGap = round2(Number(calcImpactGap(item) ?? 0));
 
-        const gateType = detectGateType(kpiId, item);
-        const chipCls = score >= 80 ? "good" : score >= 60 ? "warn" : "bad";
-        const gateChip =
-            gateType === "HARD_KO"
-                ? `<span class="chip bad">🚫 Hard KO</span>`
-                : gateType === "SOFT_KO"
-                    ? `<span class="chip warn">⏳ Soft KO</span>`
-                    : `<span class="chip good">✅ Scoring</span>`;
+        title.textContent = `${kpiId} — ${item.name || "KPI"}`;
 
-        // Title (sticky header)
-        titleEl.textContent = `${kpiId} — ${item?.name || item?.title || rec?.ten_kpi || "KPI"}`;
+        const gateTag = rec?.gate ? String(rec.gate).toUpperCase() : "NONE";
+        const insight = rec?.insight || {};
+        const warn = rec?.canh_bao || rec?.can_bao || rec?.canh_bao || {};
+        const pri = Array.isArray(rec?.hanh_dong_uu_tien) ? rec.hanh_dong_uu_tien : [];
+        const fix = Array.isArray(rec?.hanh_dong_khac_phuc) ? rec.hanh_dong_khac_phuc : [];
 
-        // Body (SCAN UI + fallback to legacy renderer)
-        bodyEl.innerHTML = `
-          <div class="rec-head">
-            <div>
-              <div class="rec-kpi">${escapeHtml(rec?.ten_kpi || item?.name || item?.title || kpiId)}</div>
-              <div class="rec-meta">
-                <span class="chip ${chipCls}">Score: ${score}</span>
-                <span class="chip">Weight: ${(w * 100).toFixed(1)}%</span>
-                <span class="chip">ImpactGap: ${impactGap}</span>
-                ${gateChip}
-                <span class="chip">${escapeHtml(normalizeGroupName(item?.group) || groupOf(kpiId) || "N/A")}</span>
-              </div>
+        const insightHTML = rec ? `
+          <div class="rec-grid">
+            <div class="rec-box">
+              <div class="rec-hd">Hiện tại</div>
+              <div class="rec-txt">${escapeHtml(insight.hien_tai || "—")}</div>
             </div>
+            <div class="rec-box">
+              <div class="rec-hd">Mục tiêu</div>
+              <div class="rec-txt">${escapeHtml(insight.muc_tieu || "—")}</div>
+            </div>
+            <div class="rec-box">
+              <div class="rec-hd">Chênh lệch</div>
+              <div class="rec-txt">${escapeHtml(insight.chenhlech || "—")}</div>
+            </div>
+            <div class="rec-box">
+              <div class="rec-hd">Đánh giá</div>
+              <div class="rec-txt">${escapeHtml(insight.danh_gia || "—")}</div>
+            </div>
+          </div>` : "";
+
+        const listToHTML = (arr, pickField) => {
+            const items = (arr || []).map((x) => {
+                const v = (typeof x === "string") ? x : (x && typeof x === "object" ? (x[pickField] || x.viec || x.text || "") : "");
+                const extra = (x && typeof x === "object")
+                    ? (x.chi_tiet_thuc_te || x.muc_tieu_ngan_han || x.thoi_gian || x.bo_phan || x.tac_dong_ky_vong || "")
+                    : "";
+                const extraHtml = extra ? `<div class="rec-sub">${escapeHtml(extra)}</div>` : "";
+                return v ? `<li><div class="rec-main">${escapeHtml(v)}</div>${extraHtml}</li>` : "";
+            }).filter(Boolean);
+
+            return items.length ? `<ul class="modal-list">${items.join("")}</ul>` : `<div class="empty-state">—</div>`;
+        };
+
+        body.innerHTML = `
+          <div class="modal-kpi-meta">
+            <div><strong>Nhóm:</strong> ${escapeHtml(groupName)}</div>
+            <div><strong>Score:</strong> ${score}</div>
+            <div><strong>Weight:</strong> ${weight}</div>
+            <div><strong>ImpactGap:</strong> ${impactGap}</div>
+            <div><strong>Gate:</strong> <span class="kpi-pill">${escapeHtml(gateTag)}</span></div>
           </div>
 
-          <div class="rec-kpi-grid">
-            <div class="kpi-snap"><div class="k">KPI ID</div><div class="v">${escapeHtml(kpiId)}</div></div>
-            <div class="kpi-snap"><div class="k">Nhóm</div><div class="v">${escapeHtml(normalizeGroupName(item?.group) || groupOf(kpiId) || "—")}</div></div>
-            <div class="kpi-snap"><div class="k">Điểm hiện tại</div><div class="v">${score}/100</div></div>
-            <div class="kpi-snap"><div class="k">Ưu tiên</div><div class="v">${escapeHtml((item?.priority || priorityOf(kpiId, item, 8)) || "—")}</div></div>
-          </div>
+          ${rec ? `
+            <div class="modal-actions">
+              <div class="modal-subtitle">Insight</div>
+              ${insightHTML}
+            </div>
 
-          <div style="height:14px"></div>
+            <div class="modal-actions">
+              <div class="modal-subtitle">Hành động ưu tiên</div>
+              ${listToHTML(pri, "viec")}
+            </div>
 
-          ${fallbackRecommendation(kpiId)}
+            <div class="modal-actions">
+              <div class="modal-subtitle">Hành động khắc phục</div>
+              ${listToHTML(fix, "viec")}
+            </div>
+
+            ${(warn && (warn.deadline || warn.neu_khong_dat)) ? `
+              <div class="modal-actions">
+                <div class="modal-subtitle">Cảnh báo</div>
+                <div class="rec-warn">
+                  ${warn.deadline ? `<div><strong>Deadline:</strong> ${escapeHtml(warn.deadline)}</div>` : ""}
+                  ${warn.neu_khong_dat ? `<div class="rec-sub">${escapeHtml(warn.neu_khong_dat)}</div>` : ""}
+                </div>
+              </div>` : ""}
+          ` : `
+            <div class="empty-state">
+              Chưa có gợi ý cho KPI này trong <b>recommendation.js</b>.
+              <div class="muted-small" style="margin-top:6px;">(Dashboard đang đọc <code>window.RECOMMENDATIONS</code>.)</div>
+            </div>
+          `}
         `;
 
         modal.classList.add("open");
     }
+
 
     function showEmptyState() {
         setLoading(false);
