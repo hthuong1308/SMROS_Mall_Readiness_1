@@ -333,7 +333,13 @@
             return 0;
         });
 
-        return { items, top20Threshold: top20 };
+        // Compatibility return type:
+        // - Many render functions expect an Array and call .filter/.slice directly.
+        // - Some older code paths expect an object { items, top20Threshold }.
+        // To prevent schema drift, we return the Array and attach aliases.
+        items.top20Threshold = top20;
+        items.items = items;
+        return items;
     }
 
     // ========================
