@@ -1676,36 +1676,65 @@
         // Fixlist click is bound in renderFixlist
     }
 
-    function openKpiModal(kpiId) {
+    function openKpiModal(kpiIdRaw) {
+        const kpiId = normalizeKpiId(kpiIdRaw);
         if (!kpiId) return;
-        const modal = $("kpiModal");
-        const title = $("modalTitle");
-        const body = $("modalBody");
-        if (!modal || !title || !body) return;
 
-        const item = (allKpis || []).find((x) => normalizeKpiId(x) === kpiId) ||
-            (fixlistItems || []).find((x) => x.kpiId === kpiId);
+        const modal = $("kpiModal");
+        const titleEl = $("modalTitle");
+        const bodyEl = $("modalBody");
+        if (!modal || !titleEl || !bodyEl) return;
+
+        const item =
+            (allKpis || []).find((x) => normalizeKpiId(x) === kpiId) ||
+            (fixlistItems || []).find((x) => normalizeKpiId(x?.kpiId) === kpiId);
 
         if (!item) return;
 
-        const rec = (window.MRSM_RECOMMENDATIONS && window.MRSM_RECOMMENDATIONS[kpiId]) ? window.MRSM_RECOMMENDATIONS[kpiId] : null;
-        const actions = (rec && rec.actions) ? rec.actions : [];
+        const rec = getRecommendation(kpiId);
+        const score = Math.round(Number(item?.score ?? 0));
+        const w = Number(item?.weight_final ?? item?.weight ?? 0);
+        const impactGap = round2(Number(calcImpactGap(item) ?? 0));
 
-        title.textContent = `${kpiId} — ${item.name || "KPI"}`;
-        body.innerHTML = `
-          <div class="modal-kpi-meta">
-            <div><strong>Nhóm:</strong> ${escapeHtml(normalizeGroupName(item.group) || groupOf(kpiId))}</div>
-            <div><strong>Score:</strong> ${Math.round(Number(item.score ?? 0))}</div>
-            <div><strong>Weight:</strong> ${round2(Number(item.weight_final ?? 0))}</div>
-            <div><strong>ImpactGap:</strong> ${round2(Number(calcImpactGap(item) ?? 0))}</div>
+        const gateType = detectGateType(kpiId, item);
+        const chipCls = score >= 80 ? "good" : score >= 60 ? "warn" : "bad";
+        const gateChip =
+            gateType === "HARD_KO"
+                ? `<span class="chip bad">🚫 Hard KO</span>`
+                : gateType === "SOFT_KO"
+                    ? `<span class="chip warn">⏳ Soft KO</span>`
+                    : `<span class="chip good">✅ Scoring</span>`;
+
+        // Title (sticky header)
+        titleEl.textContent = `${kpiId} — ${item?.name || item?.title || rec?.ten_kpi || "KPI"}`;
+
+        // Body (SCAN UI + fallback to legacy renderer)
+        bodyEl.innerHTML = `
+          <div class="rec-head">
+            <div>
+              <div class="rec-kpi">${escapeHtml(rec?.ten_kpi || item?.name || item?.title || kpiId)}</div>
+              <div class="rec-meta">
+                <span class="chip ${chipCls}">Score: ${score}</span>
+                <span class="chip">Weight: ${(w * 100).toFixed(1)}%</span>
+                <span class="chip">ImpactGap: ${impactGap}</span>
+                ${gateChip}
+                <span class="chip">${escapeHtml(normalizeGroupName(item?.group) || groupOf(kpiId) || "N/A")}</span>
+              </div>
+            </div>
           </div>
-          ${actions.length ? `<div class="modal-actions">
-              <div class="modal-subtitle">Gợi ý khắc phục</div>
-              <ul class="modal-list">
-                ${actions.map(a => `<li>${escapeHtml(a)}</li>`).join("")}
-              </ul>
-            </div>` : `<div class="empty-state">Chưa có gợi ý cho KPI này (bạn có thể điền trong recommendation.js).</div>`}
+
+          <div class="rec-kpi-grid">
+            <div class="kpi-snap"><div class="k">KPI ID</div><div class="v">${escapeHtml(kpiId)}</div></div>
+            <div class="kpi-snap"><div class="k">Nhóm</div><div class="v">${escapeHtml(normalizeGroupName(item?.group) || groupOf(kpiId) || "—")}</div></div>
+            <div class="kpi-snap"><div class="k">Điểm hiện tại</div><div class="v">${score}/100</div></div>
+            <div class="kpi-snap"><div class="k">Ưu tiên</div><div class="v">${escapeHtml((item?.priority || priorityOf(kpiId, item, 8)) || "—")}</div></div>
+          </div>
+
+          <div style="height:14px"></div>
+
+          ${fallbackRecommendation(kpiId)}
         `;
+
         modal.classList.add("open");
     }
 
