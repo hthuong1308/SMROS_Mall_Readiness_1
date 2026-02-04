@@ -694,74 +694,7 @@ function render(assess) {
     `;
   }
 
-
-  // Ensure groups are computed even when we load an existing assessment_record__{aid}
-  // (some records may have groups:{}; in that case group breakdown would show 0)
-  let groups = (assess && typeof assess === "object" && assess.groups) ? assess.groups : null;
-
-  // If groups missing/empty, recompute from KPI list (prefer AnalysisEngine if available)
-  const hasMeaningfulGroups = (g) => {
-    if (!g || typeof g !== "object") return false;
-    const keys = Object.keys(g);
-    if (keys.length === 0) return false;
-    // any non-zero score or contribution counts as meaningful
-    return keys.some((k) => {
-      const it = g[k];
-      const s = Number(it?.score ?? it?.group_score ?? 0);
-      const c = Number(it?.contribution ?? it?.group_contribution ?? 0);
-      return (s !== 0) || (c !== 0);
-    });
-  };
-
-  if (!hasMeaningfulGroups(groups)) {
-    try {
-      const kpisInput = Array.isArray(assess?.kpis) ? assess.kpis : (Array.isArray(assess?.mrsm?.breakdown) ? assess.mrsm.breakdown : []);
-      if (window.AnalysisEngine && typeof window.AnalysisEngine.computeBreakdown === "function") {
-        const r = window.AnalysisEngine.computeBreakdown(kpisInput);
-        if (r && typeof r === "object") {
-          // normalize kpis + groups back onto assess (so later sections use consistent data)
-          if (Array.isArray(r.kpis) && r.kpis.length) assess.kpis = r.kpis;
-          if (r.groups) groups = r.groups;
-          assess.groups = groups || {};
-          // also update mrsm total by sum(contribution) if missing
-          if (assess.mrsm && (assess.mrsm.final_score == null || Number.isNaN(Number(assess.mrsm.final_score)))) {
-            assess.mrsm.final_score = Number(r.totalScore ?? 0);
-          }
-        }
-      } else {
-        // Fallback: compute very basic group buckets (best-effort)
-        const buckets = { Operation: [], Brand: [], Category: [], Scale: [] };
-        (kpisInput || []).forEach((k) => {
-          const id = String(k?.id || k?.rule_id || k?.kpiId || "").toUpperCase();
-          const wf = Number(k?.weight_final ?? k?.weight ?? 0);
-          const sc = Number(k?.score ?? 0);
-          if (!id) return;
-          if (id.startsWith("OP-") || id.startsWith("CS-") || id.startsWith("PEN-") || id.startsWith("CO-")) buckets.Operation.push({ wf, sc });
-          else if (id.startsWith("BR-")) buckets.Brand.push({ wf, sc });
-          else if (id.startsWith("CAT-")) buckets.Category.push({ wf, sc });
-          else if (id.startsWith("SC-")) buckets.Scale.push({ wf, sc });
-          else buckets.Operation.push({ wf, sc });
-        });
-        const build = (arr) => {
-          const wsum = arr.reduce((s, x) => s + x.wf, 0) || 1;
-          const contrib = arr.reduce((s, x) => s + x.sc * x.wf, 0);
-          const score = contrib / wsum;
-          return { score: Math.round(score * 100) / 100, contribution: Math.round(contrib * 100) / 100 };
-        };
-        groups = {
-          Operation: build(buckets.Operation),
-          Brand: build(buckets.Brand),
-          Category: build(buckets.Category),
-          Scale: build(buckets.Scale),
-        };
-        assess.groups = groups;
-      }
-    } catch (e) {
-      console.warn("[RESULTS] recompute groups failed:", e);
-      groups = assess.groups || {};
-    }
-  }
-
+  const groups = assess.groups || {};
   const groupOrder = ["Operation", "Brand", "Category", "Scale"];
   const groupCards = groupOrder
     .map((g) => {
@@ -1147,6 +1080,27 @@ function render(assess) {
 async function load() {
   const assessmentId = getQueryParam("assessment_id");
 
+  // ✅ Some flows cache a minimal record (assessment_record_local) with groups = {}.
+  // Results page needs groups to render Group breakdown. Compute it on-the-fly if missing.
+  const ensureGroupsComputed = (record) => {
+    try {
+      if (!record || typeof record !== "object") return record;
+      const g = record.groups;
+      const isEmptyGroups = !g || (typeof g === "object" && Object.keys(g).length === 0);
+      const hasKpis = Array.isArray(record.kpis) && record.kpis.length > 0;
+      if (!isEmptyGroups || !hasKpis) return record;
+
+      // Reuse existing local calculator to normalize KPI weights & compute groups
+      const computed = calcGroupsAndKpisFromLocal({ kpis: record.kpis });
+      record.kpis = computed.kpis;
+      record.groups = computed.groups;
+      return record;
+    } catch (e) {
+      console.warn("[Results] ensureGroupsComputed failed:", e);
+      return record;
+    }
+  };
+
   // ✅ Offline/local mode: không có assessment_id
   if (!assessmentId) {
     const raw = localStorage.getItem("assessment_result");
@@ -1177,7 +1131,7 @@ async function load() {
     const cachedRaw = localStorage.getItem("assessment_record_local");
     const cached = cachedRaw ? safeParseJson(cachedRaw) : null;
     if (cached && (cached.assessment_id === assessmentId || cached.assessmentId === assessmentId)) {
-      render(cached);
+      render(ensureGroupsComputed(cached));
       return;
     }
 
@@ -1197,7 +1151,7 @@ async function load() {
     }
     if (found) {
       localStorage.setItem("assessment_record_local", JSON.stringify(found));
-      render(found);
+      render(ensureGroupsComputed(found));
       return;
     }
 
