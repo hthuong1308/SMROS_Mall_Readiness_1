@@ -27,7 +27,7 @@
 
         // Fail-closed dependencies
         if (!window.GateGuard || !window.MRSM_CONFIG) {
-            window.location.href = "./KO_GATE.html?reason=schema_mismatch";
+            window.location.href = "KO_GATE.html?reason=schema_mismatch";
             return;
         }
 
@@ -83,7 +83,7 @@
                 { cause: "missing_mrsm_config_softko" }
             );
         } else {
-            window.location.href = "./KO_GATE.html?reason=schema_mismatch";
+            window.location.href = "KO_GATE.html?reason=schema_mismatch";
         }
         return new Set();
     })();
@@ -441,14 +441,22 @@
             renderDashboard();
         } catch (err) {
             console.error("[Dashboard] Failed to render:", err);
-            try { setLoading(false); } catch (_) { /* ignore */ }
-            // Best-effort: show a simple error text if placeholder exists
-            try {
-                const ph = document.getElementById("loadingOverlay");
-                if (ph) {
-                    ph.innerHTML = "<div style=\"padding:18px;line-height:1.5\"><b>Không thể tải Dashboard</b><div style=\"opacity:.85;margin-top:6px\">Vui lòng mở DevTools (F12) để xem lỗi console và kiểm tra dữ liệu assessment_result / assessment_record.</div></div>";
-                }
-            } catch (_) { /* ignore */ }
+            try { setLoading(false); } catch (_) { }
+
+            // Show a minimal error message instead of freezing the overlay
+            const overlay = document.getElementById("loadingOverlay");
+            if (overlay) {
+                overlay.style.display = "block";
+                overlay.innerHTML = `
+                  <div style="padding:18px;max-width:720px">
+                    <div style="font-weight:800;font-size:16px;margin-bottom:6px">Không thể render Dashboard</div>
+                    <div style="opacity:.85;line-height:1.5">
+                      Mở DevTools (F12) &gt; Console để xem lỗi chi tiết.<br/>
+                      Gợi ý: kiểm tra schema <code>assessment_result</code> / <code>assessment_record_local</code> và fixlist/breakdown có phải mảng hay không.
+                    </div>
+                  </div>
+                `;
+            }
         }
     }
 
@@ -513,6 +521,7 @@
         // KPI items
         let kpis = [];
         const bdRaw = local.breakdown || local.kpis || local.results || local.mrsm?.breakdown || [];
+
         const bd = Array.isArray(bdRaw)
             ? bdRaw
             : (bdRaw && typeof bdRaw === "object")
@@ -1211,6 +1220,8 @@
         // Prepare fixlist cache
         if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
 
+
+        if (!Array.isArray(fixlistItems)) fixlistItems = (fixlistItems && typeof fixlistItems === "object") ? (fixlistItems.items || []) : [];
         // 1) Top drag (top 3 by impactGap, excluding P0 hard gate if already blocked)
         if (topDragEl) {
             const top = fixlistItems
@@ -1352,6 +1363,8 @@
         if (!root) return;
         if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
 
+
+        if (!Array.isArray(fixlistItems)) fixlistItems = (fixlistItems && typeof fixlistItems === "object") ? (fixlistItems.items || []) : [];
         const top = fixlistItems.filter(x => x.gateType === "NONE" && x.impactGap > 0).slice(0, 5);
         if (!top.length) {
             root.innerHTML = `<div class="empty-state">Chưa có dữ liệu Pareto.</div>`;
@@ -1409,6 +1422,8 @@
         if (!root) return;
         if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
 
+
+        if (!Array.isArray(fixlistItems)) fixlistItems = (fixlistItems && typeof fixlistItems === "object") ? (fixlistItems.items || []) : [];
         const pts = fixlistItems
             .filter(x => x.gateType === "NONE" && x.impactGap > 0)
             .slice(0, 20);
@@ -1496,6 +1511,8 @@
         if (!root) return;
         if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
 
+
+        if (!Array.isArray(fixlistItems)) fixlistItems = (fixlistItems && typeof fixlistItems === "object") ? (fixlistItems.items || []) : [];
         const gateStatus = (assessmentData?.gate?.status || "UNKNOWN").toUpperCase();
 
         // If gate blocked: show P0 first, else show top by impact gap
