@@ -319,7 +319,7 @@
             return 0;
         });
 
-        return { items, top20Threshold: top20 };
+        items.items = items; items.top20Threshold = top20; return items;
     }
 
     // ========================
@@ -520,7 +520,7 @@
 
         // KPI items
         let kpis = [];
-        const bdRaw = local.breakdown || local.kpis || local.results || local.mrsm?.breakdown || [];
+        const bdRaw = local.breakdown || local.assessment_result?.breakdown || local.assessment_result?.kpis || local.assessment_result?.results || local.kpis || local.results || local.mrsm?.breakdown || [];
 
         const bd = Array.isArray(bdRaw)
             ? bdRaw
@@ -1676,7 +1676,7 @@
         // Fixlist click is bound in renderFixlist
     }
 
-    
+
     function openKpiModal(kpiId) {
         if (!kpiId) return;
         kpiId = normalizeKpiId(kpiId);
