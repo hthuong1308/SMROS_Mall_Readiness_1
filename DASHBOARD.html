@@ -731,6 +731,90 @@
         font-weight: 900
     }
 
+    .kpi-sub {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 4px;
+        flex-wrap: wrap;
+    }
+
+    /* New: score/impact + recommendation button (Dashboard v2) */
+    .score-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 46px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 1000;
+        border: 1px solid var(--duong-ke);
+        background: var(--nen);
+    }
+
+    .score-badge.s100 {
+        background: var(--tot-nen);
+        color: var(--tot);
+        border-color: rgba(22, 163, 74, .25);
+    }
+
+    .score-badge.s50 {
+        background: var(--canh-bao-nen);
+        color: var(--canh-bao);
+        border-color: rgba(245, 158, 11, .25);
+    }
+
+    .score-badge.s0 {
+        background: var(--nguy-hiem-nen);
+        color: var(--nguy-hiem);
+        border-color: rgba(220, 38, 38, .2);
+    }
+
+    .impact-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 56px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 900;
+        color: var(--chu);
+        background: #f3f4f6;
+        border: 1px solid var(--duong-ke);
+    }
+
+    .btn-rec {
+        padding: 8px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--duong-ke);
+        background: var(--trang);
+        color: var(--chu);
+        font-weight: 900;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all .15s ease;
+        width: 100%;
+    }
+
+    .btn-rec:hover {
+        border-color: var(--cam);
+        box-shadow: 0 2px 10px rgba(238, 77, 45, .12);
+        transform: translateY(-1px);
+    }
+
+    .btn-rec[data-empty="1"] {
+        opacity: .7;
+        cursor: not-allowed;
+    }
+
+    .btn-rec[data-empty="1"]:hover {
+        border-color: var(--duong-ke);
+        box-shadow: none;
+        transform: none;
+    }
+
     .kpi-score {
         display: inline-block;
         padding: 4px 10px;
@@ -2153,6 +2237,61 @@
         margin: 6px 0;
         color: var(--chu);
     }
+
+    /* Recommendation blocks */
+    .rec-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 8px;
+    }
+
+    .rec-box {
+        border: 1px solid rgba(18, 24, 56, 0.10);
+        background: rgba(255, 255, 255, 0.75);
+        border-radius: 12px;
+        padding: 10px;
+    }
+
+    .rec-hd {
+        font-weight: 900;
+        font-size: 12px;
+        color: var(--chu-phu);
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: .02em;
+    }
+
+    .rec-txt {
+        font-size: 13px;
+        font-weight: 800;
+        color: var(--chu);
+    }
+
+    .rec-main {
+        font-weight: 900;
+    }
+
+    .rec-sub {
+        font-size: 12px;
+        color: var(--chu-phu);
+        margin-top: 2px;
+        font-weight: 700;
+    }
+
+    .rec-warn {
+        border: 1px solid rgba(245, 158, 11, 0.25);
+        background: var(--canh-bao-nen);
+        border-radius: 12px;
+        padding: 10px;
+        font-size: 13px;
+        font-weight: 800;
+        color: var(--chu);
+    }
+
+    @media (max-width: 640px) {
+        .rec-grid { grid-template-columns: 1fr; }
+    }
 </style>
 
 <body class="is-loading">
@@ -2464,7 +2603,8 @@
                     <div class="table-toolbar">
                         <div class="search-box">
                             <span class="search-icon">🔍</span>
-                            <input type="text" id="searchKPI" aria-label="Tìm kiếm KPI" placeholder="Tìm kiếm theo mã hoặc tên KPI...">
+                            <input type="text" id="searchKPI" aria-label="Tìm kiếm KPI"
+                                placeholder="Tìm kiếm theo mã hoặc tên KPI...">
                         </div>
                         <div class="filter-group">
                             <label for="filterGroup">Nhóm:</label>
@@ -2530,19 +2670,19 @@
 
     <!-- 3️⃣ Firestore dashboard init (chỉ gọi 1 lần): prefetch dữ liệu dashboard -->
     <script type="module">
-  // OPTIONAL: Firestore prefetch (safe - won't break if module/export missing)
-  try {
-    const mod = await import("./firestore-dashboard.js");
-    const fn = mod.initFirestoreDashboardPrefetch || mod.default || mod.init || null;
-    if (typeof fn === "function") {
-      fn({ limit: 20, forceModeLocal: true });
-    } else {
-      console.warn("[Dashboard] firestore-dashboard.js loaded but no init function exported.");
-    }
-  } catch (e) {
-    console.warn("[Dashboard] Skip Firestore prefetch:", e?.message || e);
-  }
-</script>
+        // OPTIONAL: Firestore prefetch (safe - won't break if module/export missing)
+        try {
+            const mod = await import("./firestore-dashboard.js");
+            const fn = mod.initFirestoreDashboardPrefetch || mod.default || mod.init || null;
+            if (typeof fn === "function") {
+                fn({ limit: 20, forceModeLocal: true });
+            } else {
+                console.warn("[Dashboard] firestore-dashboard.js loaded but no init function exported.");
+            }
+        } catch (e) {
+            console.warn("[Dashboard] Skip Firestore prefetch:", e?.message || e);
+        }
+    </script>
 
     <!-- 4️⃣ MRSM config (SSOT) -->
     <script src="./mrsm_config.js"></script>
@@ -2554,7 +2694,7 @@
 
     <!-- 6️⃣ Recommendations (có thể dùng config / meta) -->
     <script src="./recommendation.js"></script>
-    
+
 
     <!-- 7️⃣ Dashboard UI logic -->
     <script src="./dashboard.js"></script>
