@@ -319,7 +319,7 @@
             return 0;
         });
 
-        items.items = items; items.top20Threshold = top20; return items;
+        return { items, top20Threshold: top20 };
     }
 
     // ========================
@@ -422,7 +422,7 @@
             const hasHardInPayload = !!(maybeGate?.hard?.verified_at || maybeGate?.hard?.verifiedAt || parsed?.hard_verified_at);
 
             if (!hasHard && !hasHardInPayload) {
-                window.location.href = "./KO_GATE.html";
+                window.location.href = "KO_GATE.html";
                 return;
             }
         }
@@ -436,28 +436,8 @@
             }
         } catch (_) { /* ignore */ }
 
-        try {
-            assessmentData = adaptLocalData(parsed);
-            renderDashboard();
-        } catch (err) {
-            console.error("[Dashboard] Failed to render:", err);
-            try { setLoading(false); } catch (_) { }
-
-            // Show a minimal error message instead of freezing the overlay
-            const overlay = document.getElementById("loadingOverlay");
-            if (overlay) {
-                overlay.style.display = "block";
-                overlay.innerHTML = `
-                  <div style="padding:18px;max-width:720px">
-                    <div style="font-weight:800;font-size:16px;margin-bottom:6px">Không thể render Dashboard</div>
-                    <div style="opacity:.85;line-height:1.5">
-                      Mở DevTools (F12) &gt; Console để xem lỗi chi tiết.<br/>
-                      Gợi ý: kiểm tra schema <code>assessment_result</code> / <code>assessment_record_local</code> và fixlist/breakdown có phải mảng hay không.
-                    </div>
-                  </div>
-                `;
-            }
-        }
+        assessmentData = adaptLocalData(parsed);
+        renderDashboard();
     }
 
     function normalizeGateFromSnapshot(local) {
@@ -520,13 +500,7 @@
 
         // KPI items
         let kpis = [];
-        const bdRaw = local.breakdown || local.assessment_result?.breakdown || local.assessment_result?.kpis || local.assessment_result?.results || local.kpis || local.results || local.mrsm?.breakdown || [];
-
-        const bd = Array.isArray(bdRaw)
-            ? bdRaw
-            : (bdRaw && typeof bdRaw === "object")
-                ? Object.values(bdRaw)
-                : [];
+        const bd = local.breakdown || local.kpis || local.results || local.mrsm?.breakdown || [];
 
         for (const k of bd) {
             const value =
@@ -981,13 +955,45 @@
     // ========================
     // Modal (simple + safe)
     // ========================
+    // ========================
+    // Modal (recommendation) — scored + consistent with actual KPI result
+    // ========================
+    function buildTargetText(kpiId) {
+        try {
+            const meta = window.MRSM_CONFIG?.getKpiMeta ? window.MRSM_CONFIG.getKpiMeta(kpiId) : null;
+            if (!meta) return "";
+            const dir = String(meta.direction || "").toUpperCase();
+            const t1 = meta.t1;
+            const t2 = meta.t2;
+            const fmt = (x) => (x === undefined || x === null || x === "") ? "" : String(x);
+            if (dir === "LE") return `≤ ${fmt(t1)} (50đ nếu ≤ ${fmt(t2)})`;
+            if (dir === "GE") return `≥ ${fmt(t1)} (50đ nếu ≥ ${fmt(t2)})`;
+            return "";
+        } catch { return ""; }
+    }
+
+    function formatValue(v) {
+        if (v === null || v === undefined || v === "") return "—";
+        if (typeof v === "number") return Number.isFinite(v) ? String(v) : "—";
+        const n = Number(v);
+        if (Number.isFinite(n) && String(v).trim() !== "") return String(v);
+        return String(v);
+    }
+
+    function scoreStatus(score) {
+        const s = Number(score ?? 0);
+        if (s >= 100) return { key: "PASS", label: "✅ Đạt", cls: "status-pass", desc: "KPI đang đạt. Bạn chỉ cần duy trì và tối ưu nhẹ." };
+        if (s >= 50) return { key: "PARTIAL", label: "🟠 Cần cải thiện", cls: "status-partial", desc: "KPI tiệm cận mục tiêu. Ưu tiên các hành động nâng từ 50 → 100." };
+        return { key: "FAIL", label: "🔴 Chưa đạt", cls: "status-fail", desc: "KPI chưa đạt tiêu chuẩn. Ưu tiên khắc phục theo khuyến nghị." };
+    }
+
     window.renderRecommendationModal = function renderRecommendationModal(kpiIdRaw) {
         const modal = $("recommendation-modal");
         const modalBody = $("modal-body");
         if (!modal || !modalBody) return;
 
         const kpiId = normalizeKpiId(kpiIdRaw);
-        const item = allKpis.find((x) => normalizeKpiId(x) === kpiId);
+        const item = (allKpis || []).find((x) => normalizeKpiId(x) === kpiId);
         if (!item) return;
 
         const rec = getRecommendation(kpiId);
@@ -995,44 +1001,87 @@
         const impactGap = calcImpactGap(item);
         const score = Number(item?.score ?? 0);
         const w = Number(item?.weight_final ?? 0);
+        const v = (item?.value ?? item?.raw_value ?? item?.val ?? item?.meta?.value ?? item?.meta?.input_value);
 
+        const st = scoreStatus(score);
         const gateType = detectGateType(kpiId, item);
         let gateLabel = "";
-        if (gateType === "HARD_KO") gateLabel = '<span style="color: var(--nguy-hiem); font-weight: 700;">🚫 Hard KO</span>';
-        else if (gateType === "SOFT_KO") gateLabel = '<span style="color: var(--canh-bao); font-weight: 700;">⏳ Soft KO</span>';
+        if (gateType === "HARD_KO") gateLabel = '<span class="gate-tag hard">🚫 Hard KO</span>';
+        else if (gateType === "SOFT_KO") gateLabel = '<span class="gate-tag soft">⏳ Soft KO</span>';
+
+        const target = buildTargetText(kpiId);
 
         modalBody.innerHTML = `
-      <div class="modal-header" style="border-bottom:2px solid var(--vien);padding-bottom:12px;margin-bottom:16px;">
-        <h3 style="margin:0;font-size:20px;font-weight:700;color:var(--chu);">${escapeHtml(rec?.ten_kpi || item?.title || kpiId)}</h3>
-        <div style="font-size:13px;color:var(--chu-phu);margin-top:4px;">
-          ID: ${escapeHtml(kpiId)} • Nhóm: ${escapeHtml(rec?.nhom || item?.group || "N/A")}
-          ${gateLabel ? ` • ${gateLabel}` : ""}
-        </div>
+  <div class="rec-modal-head">
+    <div>
+      <h3 class="rec-modal-title">${escapeHtml(rec?.ten_kpi || item?.title || kpiId)}</h3>
+      <div class="rec-modal-sub">
+        <span class="mono">ID: ${escapeHtml(kpiId)}</span>
+        <span>•</span>
+        <span>Nhóm: ${escapeHtml(rec?.nhom || item?.group || "N/A")}</span>
+        ${gateLabel ? `<span>•</span>${gateLabel}` : ""}
       </div>
+    </div>
+    <div class="status-chip ${st.cls}">${st.label}</div>
+  </div>
 
-      <div class="modal-section" style="margin-bottom:16px;">
-        <h4 style="font-size:16px;font-weight:600;color:var(--chu);margin-bottom:8px;">📊 Thông tin</h4>
-        <div style="font-size:14px;color:var(--chu-phu);">
-          <div>Điểm: <strong style="color: var(--chu);">${score}</strong></div>
-          <div>Trọng số: <strong style="color: var(--chu);">${(w * 100).toFixed(1)}%</strong></div>
-          <div>Impact Gap: <strong style="color: var(--chu);">${impactGap.toFixed(2)}</strong></div>
-        </div>
-      </div>
+  <div class="rec-summary">${escapeHtml(st.desc)}</div>
 
-      ${fallbackRecommendation(kpiId)}
-    `;
+  <div class="rec-metrics">
+    <div class="rec-metric">
+      <div class="k">Điểm</div>
+      <div class="v">${Math.round(score)}</div>
+    </div>
+    <div class="rec-metric">
+      <div class="k">Giá trị hiện tại</div>
+      <div class="v">${escapeHtml(formatValue(v))}</div>
+    </div>
+    <div class="rec-metric">
+      <div class="k">Mục tiêu</div>
+      <div class="v">${escapeHtml(target || (rec?.insight?.muc_tieu || "—"))}</div>
+    </div>
+    <div class="rec-metric">
+      <div class="k">Trọng số</div>
+      <div class="v">${(w * 100).toFixed(1)}%</div>
+    </div>
+    <div class="rec-metric">
+      <div class="k">Impact Gap</div>
+      <div class="v">${Number.isFinite(impactGap) ? impactGap.toFixed(2) : "0.00"}</div>
+    </div>
+  </div>
+
+  ${fallbackRecommendation(kpiId, { score, status: st.key, currentValue: v })}
+`;
 
         modal.classList.add("active");
-    };
+    };;
 
     window.closeRecommendationModal = function closeRecommendationModal() {
         const modal = $("recommendation-modal");
         if (modal) modal.classList.remove("active");
     };
 
-    function fallbackRecommendation(id) {
+    function fallbackRecommendation(id, ctx = {}) {
         const rec = getRecommendation(id);
-        if (!rec) return '<p style="color: var(--chu-phu);">Chưa có khuyến nghị chi tiết cho KPI này.</p>';
+        const score = Number(ctx.score ?? NaN);
+        const status = String(ctx.status || "").toUpperCase(); // PASS | PARTIAL | FAIL
+        const currentValue = ctx.currentValue;
+
+        if (!rec) {
+            // Nếu KPI đã đạt mà chưa có recommendation: show "duy trì"
+            if (Number.isFinite(score) && score >= 100) {
+                return `
+      <div class="recommendation-box ok">
+        <h5>✅ KPI đã đạt — gợi ý duy trì</h5>
+        <ul>
+          <li>Duy trì quy trình hiện tại và theo dõi KPI hàng tuần.</li>
+          <li>Thiết lập cảnh báo khi KPI có xu hướng giảm.</li>
+          <li>Tối ưu thêm nếu muốn nâng độ ổn định (không bắt buộc).</li>
+        </ul>
+      </div>`;
+            }
+            return '<p style="color: var(--chu-phu);">Chưa có khuyến nghị chi tiết cho KPI này.</p>';
+        }
 
         const toText = (x) => {
             if (x == null) return "";
@@ -1042,37 +1091,89 @@
             return String(x);
         };
 
+        // Auto-fill insight.hien_tai theo số liệu thực tế nếu trống
+        try {
+            if (rec.insight && typeof rec.insight === "object") {
+                if (!rec.insight.hien_tai || !String(rec.insight.hien_tai).trim()) {
+                    rec.insight.hien_tai = (currentValue === null || currentValue === undefined || currentValue === "")
+                        ? `Score ${Math.round(Number.isFinite(score) ? score : 0)}`
+                        : `Giá trị: ${String(currentValue)} (Score ${Math.round(Number.isFinite(score) ? score : 0)})`;
+                }
+                // Nếu KPI đã đạt thì override mô tả đánh giá để không bị "chưa đạt"
+                if (status === "PASS") {
+                    rec.insight.danh_gia = "KPI đã đạt theo kết quả chấm điểm. Ưu tiên duy trì và chuẩn hóa quy trình để tránh regress.";
+                } else if (status === "PARTIAL") {
+                    rec.insight.danh_gia = "KPI tiệm cận mục tiêu (50 điểm). Ưu tiên hành động nâng lên 100 điểm.";
+                } else if (status === "FAIL") {
+                    // giữ nguyên nếu rec có nội dung
+                    rec.insight.danh_gia = rec.insight.danh_gia || "KPI chưa đạt. Cần khắc phục theo gợi ý.";
+                }
+            }
+        } catch { /* ignore */ }
+
         let html = "";
+
+        // Insight block
+        if (rec.insight && typeof rec.insight === "object") {
+            const i = rec.insight;
+            html += `
+    <div class="recommendation-box info">
+      <h5>📌 Insight</h5>
+      <ul>
+        <li><b>Hiện tại:</b> ${escapeHtml(toText(i.hien_tai) || "—")}</li>
+        <li><b>Mục tiêu:</b> ${escapeHtml(toText(i.muc_tieu) || "—")}</li>
+        <li><b>Chênh lệch:</b> ${escapeHtml(toText(i.chenhlech) || "—")}</li>
+        <li><b>Đánh giá:</b> ${escapeHtml(toText(i.danh_gia) || "—")}</li>
+      </ul>
+    </div>
+  `;
+        }
+
+        const priTitle = (status === "PASS") ? "🎯 Gợi ý duy trì / tối ưu" : "✅ Hành động ưu tiên";
+        const fixTitle = (status === "PASS") ? "🛠️ Nếu KPI có dấu hiệu giảm" : "🛠️ Hành động khắc phục";
 
         if (Array.isArray(rec.hanh_dong_uu_tien) && rec.hanh_dong_uu_tien.length > 0) {
             html += `
-        <div class="recommendation-box">
-          <h5>✅ Hành động ưu tiên</h5>
-          <ul>${rec.hanh_dong_uu_tien.map((h) => `<li>${escapeHtml(toText(h))}</li>`).join("")}</ul>
-        </div>
-      `;
+    <div class="recommendation-box">
+      <h5>${priTitle}</h5>
+      <ul>${rec.hanh_dong_uu_tien.map((h) => `<li>${escapeHtml(toText(h))}</li>`).join("")}</ul>
+    </div>
+  `;
         }
 
         if (Array.isArray(rec.hanh_dong_khac_phuc) && rec.hanh_dong_khac_phuc.length > 0) {
             html += `
-        <div class="recommendation-box" style="background: var(--canh-bao-nen); border-color: var(--canh-bao);">
-          <h5 style="color: var(--canh-bao);">🛠️ Hành động khắc phục</h5>
-          <ul>${rec.hanh_dong_khac_phuc.map((h) => `<li>${escapeHtml(toText(h))}</li>`).join("")}</ul>
-        </div>
-      `;
+    <div class="recommendation-box warn">
+      <h5>${fixTitle}</h5>
+      <ul>${rec.hanh_dong_khac_phuc.map((h) => `<li>${escapeHtml(toText(h))}</li>`).join("")}</ul>
+    </div>
+  `;
         }
 
         if (Array.isArray(rec.luu_y) && rec.luu_y.length > 0) {
             html += `
-        <div class="recommendation-box" style="background: var(--xanh-nen); border-color: var(--xanh);">
-          <h5 style="color: var(--xanh);">💡 Lưu ý</h5>
-          <ul>${rec.luu_y.map((l) => `<li>${escapeHtml(toText(l))}</li>`).join("")}</ul>
-        </div>
-      `;
+    <div class="recommendation-box tip">
+      <h5>💡 Lưu ý</h5>
+      <ul>${rec.luu_y.map((l) => `<li>${escapeHtml(toText(l))}</li>`).join("")}</ul>
+    </div>
+  `;
+        }
+
+        // Nếu KPI đã đạt và không có nội dung nào → default maintain card
+        if (!html && Number.isFinite(score) && score >= 100) {
+            html = `
+    <div class="recommendation-box ok">
+      <h5>✅ KPI đã đạt — gợi ý duy trì</h5>
+      <ul>
+        <li>Thiết lập checklist kiểm soát để tránh tụt KPI.</li>
+        <li>Theo dõi xu hướng và cảnh báo sớm khi KPI giảm.</li>
+        <li>Tối ưu liên tục theo các best-practice (không bắt buộc).</li>
+      </ul>
+    </div>`;
         }
 
         if (rec.thoi_han) {
-            html += `<p style="margin-top:12px;font-size:13px;color:var(--nguy-hiem);font-weight:700;">⏰ Thời hạn khuyến nghị: ${escapeHtml(rec.thoi_han)}</p>`;
+            html += `<p class="rec-deadline">⏰ Thời hạn khuyến nghị: ${escapeHtml(rec.thoi_han)}</p>`;
         }
 
         return html || '<p style="color: var(--chu-phu);">Không có khuyến nghị.</p>';
@@ -1218,10 +1319,8 @@
         const gateStatus = (assessmentData?.gate?.status || "UNKNOWN").toUpperCase();
 
         // Prepare fixlist cache
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
+        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
 
-
-        if (!Array.isArray(fixlistItems)) fixlistItems = (fixlistItems && typeof fixlistItems === "object") ? (fixlistItems.items || []) : [];
         // 1) Top drag (top 3 by impactGap, excluding P0 hard gate if already blocked)
         if (topDragEl) {
             const top = fixlistItems
@@ -1361,10 +1460,8 @@
     function renderParetoChart() {
         const root = $("paretoChart");
         if (!root) return;
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
+        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
 
-
-        if (!Array.isArray(fixlistItems)) fixlistItems = (fixlistItems && typeof fixlistItems === "object") ? (fixlistItems.items || []) : [];
         const top = fixlistItems.filter(x => x.gateType === "NONE" && x.impactGap > 0).slice(0, 5);
         if (!top.length) {
             root.innerHTML = `<div class="empty-state">Chưa có dữ liệu Pareto.</div>`;
@@ -1420,10 +1517,8 @@
     function renderPriorityMap() {
         const root = $("priorityMap");
         if (!root) return;
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
+        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
 
-
-        if (!Array.isArray(fixlistItems)) fixlistItems = (fixlistItems && typeof fixlistItems === "object") ? (fixlistItems.items || []) : [];
         const pts = fixlistItems
             .filter(x => x.gateType === "NONE" && x.impactGap > 0)
             .slice(0, 20);
@@ -1509,10 +1604,8 @@
     function renderFixlist() {
         const root = $("fixlist");
         if (!root) return;
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
+        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
 
-
-        if (!Array.isArray(fixlistItems)) fixlistItems = (fixlistItems && typeof fixlistItems === "object") ? (fixlistItems.items || []) : [];
         const gateStatus = (assessmentData?.gate?.status || "UNKNOWN").toUpperCase();
 
         // If gate blocked: show P0 first, else show top by impact gap
@@ -1583,54 +1676,27 @@
             return hay.includes(search);
         });
 
-        // Table (match DASHBOARD.html headers)
+        // Table
         if (tbody) {
             tbody.innerHTML = filtered.map((k) => {
                 const score = Math.round(Number(k.score ?? 0));
+                const w = round2(Number(k.weight_final ?? 0));
                 const imp = round2(Number(k.impactGap ?? 0));
                 const pr = k.priority || "P3";
                 const tagCls = pr === "P0" ? "p0" : pr === "P1" ? "p1" : pr === "P2" ? "p2" : "p3";
-                const groupName = normalizeGroupName(k.group) || "";
-                const hasRec = !!getRecommendation(k.kpiId);
-                const scoreCls = (score >= 90) ? "s100" : (score >= 45) ? "s50" : "s0";
-                return `<tr data-kpi="${escapeHtml(k.kpiId)}" role="button" tabindex="0">
+                return `<tr data-kpi="${escapeHtml(k.kpiId)}">
                   <td><span class="kpi-pill">${escapeHtml(k.kpiId)}</span></td>
-                  <td>
-                    <div class="kpi-name">${escapeHtml(k.name || "")}</div>
-                    <div class="kpi-sub">
-                      <span class="tag ${tagCls}">${escapeHtml(pr)}</span>
-                      <span class="muted-small">WF: ${round2(Number(k.weight_final ?? 0))}</span>
-                    </div>
-                  </td>
-                  <td>${escapeHtml(groupName)}</td>
-                  <td><span class="score-badge ${scoreCls}">${score}</span></td>
-                  <td><span class="impact-badge">${imp}</span></td>
-                  <td>
-                    <button class="btn-rec" data-kpi="${escapeHtml(k.kpiId)}" ${hasRec ? "" : "data-empty=1 disabled"} ${hasRec ? "" : "disabled"}>
-                      ${hasRec ? "Xem" : "Chưa có"}
-                    </button>
-                  </td>
+                  <td>${escapeHtml(k.name || "")}</td>
+                  <td><span class="tag ${tagCls}">${escapeHtml(pr)}</span></td>
+                  <td>${escapeHtml(normalizeGroupName(k.group) || "")}</td>
+                  <td>${score}</td>
+                  <td>${w}</td>
+                  <td>${imp}</td>
                 </tr>`;
             }).join("");
 
-            // Row click opens modal
             tbody.querySelectorAll("tr").forEach((tr) => {
                 tr.addEventListener("click", () => openKpiModal(tr.getAttribute("data-kpi")));
-                tr.addEventListener("keydown", (e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        openKpiModal(tr.getAttribute("data-kpi"));
-                    }
-                });
-            });
-
-            // Recommendation button (prevents row click double-trigger)
-            tbody.querySelectorAll(".btn-rec").forEach((btn) => {
-                btn.addEventListener("click", (e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openKpiModal(btn.getAttribute("data-kpi"));
-                });
             });
         }
 
@@ -1690,38 +1756,27 @@
             });
         }
 
-        // Modal close (CSS uses .modal.active)
+        // Modal close
         const modal = $("kpiModal");
         const close = $("modalClose");
-        const overlay = modal ? modal.querySelector(".modal-overlay") : null;
-
-        const closeModal = () => {
-            if (!modal) return;
-            modal.classList.remove("active");
-            // Optional: clear body to avoid stale HTML
-            const body = $("modalBody");
-            if (body) body.innerHTML = "";
-        };
-
-        if (close) close.addEventListener("click", closeModal);
-        if (overlay) overlay.addEventListener("click", closeModal);
-        // Escape to close
-        document.addEventListener("keydown", (e) => {
-            if (e.key === "Escape") closeModal();
-        });
+        if (close && modal) close.addEventListener("click", () => modal.classList.remove("active"));
+        if (modal) {
+            modal.addEventListener("click", (e) => {
+                if (e.target === modal) modal.classList.remove("active");
+            });
+        }
 
         // Fixlist click is bound in renderFixlist
     }
-
 
     function openKpiModal(kpiId) {
         if (!kpiId) return;
         kpiId = normalizeKpiId(kpiId);
 
         const modal = $("kpiModal");
-        const title = $("modalTitle");
+        const titleEl = $("modalTitle");
         const body = $("modalBody");
-        if (!modal || !title || !body) return;
+        if (!modal || !titleEl || !body) return;
 
         const item =
             (allKpis || []).find((x) => normalizeKpiId(x) === kpiId) ||
@@ -1729,99 +1784,137 @@
 
         if (!item) return;
 
-        // ✅ recommendation.js defines window.RECOMMENDATIONS (NOT MRSM_RECOMMENDATIONS)
         const rec = getRecommendation(kpiId);
 
         const groupName = normalizeGroupName(item.group) || groupOf(kpiId);
-        const score = Math.round(Number(item.score ?? 0));
+        const score = Number(item.score ?? 0);
         const weight = round2(Number(item.weight_final ?? item.weight ?? 0));
         const impactGap = round2(Number(calcImpactGap(item) ?? 0));
+        const v = (item?.value ?? item?.raw_value ?? item?.val ?? item?.meta?.value ?? item?.meta?.input_value);
 
-        title.textContent = `${kpiId} — ${item.name || "KPI"}`;
+        const st = scoreStatus(score);
+        const target = buildTargetText(kpiId);
 
-        const gateTag = rec?.gate ? String(rec.gate).toUpperCase() : "NONE";
-        const insight = rec?.insight || {};
-        const warn = rec?.canh_bao || rec?.can_bao || rec?.canh_bao || {};
+        // Auto-fix insight text so it matches actual score (tránh "đạt mà bảo chưa đạt")
+        const insight = (rec && rec.insight && typeof rec.insight === "object") ? { ...rec.insight } : {};
+        if (!String(insight.hien_tai || "").trim()) {
+            insight.hien_tai = (v === null || v === undefined || v === "")
+                ? `Score ${Math.round(score)}`
+                : `Giá trị: ${formatValue(v)} (Score ${Math.round(score)})`;
+        }
+        if (!String(insight.muc_tieu || "").trim()) {
+            insight.muc_tieu = target || "—";
+        }
+        if (st.key === "PASS") {
+            insight.danh_gia = "KPI đã đạt theo kết quả chấm điểm. Ưu tiên duy trì và chuẩn hóa quy trình để tránh regress.";
+        } else if (st.key === "PARTIAL") {
+            insight.danh_gia = "KPI tiệm cận mục tiêu (50 điểm). Ưu tiên hành động nâng lên 100 điểm.";
+        } else {
+            insight.danh_gia = insight.danh_gia || "KPI chưa đạt. Cần khắc phục theo gợi ý.";
+        }
+
+        const gateType = detectGateType(kpiId, item);
+        const gateBadge =
+            gateType === "HARD_KO" ? `<span class="gate-tag hard">🚫 Hard KO</span>` :
+                gateType === "SOFT_KO" ? `<span class="gate-tag soft">⏳ Soft KO</span>` :
+                    "";
+
         const pri = Array.isArray(rec?.hanh_dong_uu_tien) ? rec.hanh_dong_uu_tien : [];
         const fix = Array.isArray(rec?.hanh_dong_khac_phuc) ? rec.hanh_dong_khac_phuc : [];
 
-        const insightHTML = rec ? `
-          <div class="rec-grid">
-            <div class="rec-box">
-              <div class="rec-hd">Hiện tại</div>
-              <div class="rec-txt">${escapeHtml(insight.hien_tai || "—")}</div>
-            </div>
-            <div class="rec-box">
-              <div class="rec-hd">Mục tiêu</div>
-              <div class="rec-txt">${escapeHtml(insight.muc_tieu || "—")}</div>
-            </div>
-            <div class="rec-box">
-              <div class="rec-hd">Chênh lệch</div>
-              <div class="rec-txt">${escapeHtml(insight.chenhlech || "—")}</div>
-            </div>
-            <div class="rec-box">
-              <div class="rec-hd">Đánh giá</div>
-              <div class="rec-txt">${escapeHtml(insight.danh_gia || "—")}</div>
-            </div>
-          </div>` : "";
-
-        const listToHTML = (arr, pickField) => {
-            const items = (arr || []).map((x) => {
-                const v = (typeof x === "string") ? x : (x && typeof x === "object" ? (x[pickField] || x.viec || x.text || "") : "");
-                const extra = (x && typeof x === "object")
-                    ? (x.chi_tiet_thuc_te || x.muc_tieu_ngan_han || x.thoi_gian || x.bo_phan || x.tac_dong_ky_vong || "")
-                    : "";
-                const extraHtml = extra ? `<div class="rec-sub">${escapeHtml(extra)}</div>` : "";
-                return v ? `<li><div class="rec-main">${escapeHtml(v)}</div>${extraHtml}</li>` : "";
-            }).filter(Boolean);
-
-            return items.length ? `<ul class="modal-list">${items.join("")}</ul>` : `<div class="empty-state">—</div>`;
+        const toText = (x) => {
+            if (x == null) return "";
+            if (typeof x === "string") return x;
+            if (typeof x === "number") return String(x);
+            if (typeof x === "object") return x.viec || x.text || x.noi_dung || x.title || JSON.stringify(x);
+            return String(x);
         };
 
+        const listHTML = (arr) => {
+            const items = (arr || []).map((h) => {
+                const main = toText(h);
+                const extra = (h && typeof h === "object")
+                    ? (h.chi_tiet_thuc_te || h.muc_tieu_ngan_han || h.thoi_gian || h.bo_phan || h.tac_dong_ky_vong || "")
+                    : "";
+                return main
+                    ? `<li><div class="rec-main">${escapeHtml(main)}</div>${extra ? `<div class="rec-sub">${escapeHtml(extra)}</div>` : ""}</li>`
+                    : "";
+            }).filter(Boolean);
+
+            return items.length ? `<ul class="rec-list">${items.join("")}</ul>` : "";
+        };
+
+        titleEl.textContent = `${kpiId} — ${item.name || item.title || "KPI"}`;
+
         body.innerHTML = `
-          <div class="modal-kpi-meta">
-            <div><strong>Nhóm:</strong> ${escapeHtml(groupName)}</div>
-            <div><strong>Score:</strong> ${score}</div>
-            <div><strong>Weight:</strong> ${weight}</div>
-            <div><strong>ImpactGap:</strong> ${impactGap}</div>
-            <div><strong>Gate:</strong> <span class="kpi-pill">${escapeHtml(gateTag)}</span></div>
+      <div class="rec-modal-head">
+        <div>
+          <div class="rec-modal-sub">
+            <span>Nhóm: <b>${escapeHtml(groupName)}</b></span>
+            <span>•</span>
+            <span>Trọng số: <b>${(weight * 100).toFixed(0)}%</b></span>
+            <span>•</span>
+            <span>Impact Gap: <b>${impactGap}</b></span>
+            ${gateBadge ? `<span>•</span>${gateBadge}` : ""}
           </div>
+        </div>
+        <div class="status-chip ${st.cls}">${st.label}</div>
+      </div>
 
-          ${rec ? `
-            <div class="modal-actions">
-              <div class="modal-subtitle">Insight</div>
-              ${insightHTML}
-            </div>
+      <div class="rec-summary">${escapeHtml(st.desc)}</div>
 
-            <div class="modal-actions">
-              <div class="modal-subtitle">Hành động ưu tiên</div>
-              ${listToHTML(pri, "viec")}
-            </div>
+      <div class="rec-metrics">
+        <div class="rec-metric">
+          <div class="k">Điểm</div>
+          <div class="v">${Math.round(score)}</div>
+        </div>
+        <div class="rec-metric">
+          <div class="k">Giá trị hiện tại</div>
+          <div class="v">${escapeHtml(formatValue(v))}</div>
+        </div>
+        <div class="rec-metric">
+          <div class="k">Mục tiêu</div>
+          <div class="v">${escapeHtml(insight.muc_tieu || "—")}</div>
+        </div>
+      </div>
 
-            <div class="modal-actions">
-              <div class="modal-subtitle">Hành động khắc phục</div>
-              ${listToHTML(fix, "viec")}
-            </div>
+      <div class="recommendation-box info">
+        <h5>📌 Insight</h5>
+        <ul>
+          <li><b>Hiện tại:</b> ${escapeHtml(toText(insight.hien_tai) || "—")}</li>
+          <li><b>Mục tiêu:</b> ${escapeHtml(toText(insight.muc_tieu) || "—")}</li>
+          <li><b>Đánh giá:</b> ${escapeHtml(toText(insight.danh_gia) || "—")}</li>
+        </ul>
+      </div>
 
-            ${(warn && (warn.deadline || warn.neu_khong_dat)) ? `
-              <div class="modal-actions">
-                <div class="modal-subtitle">Cảnh báo</div>
-                <div class="rec-warn">
-                  ${warn.deadline ? `<div><strong>Deadline:</strong> ${escapeHtml(warn.deadline)}</div>` : ""}
-                  ${warn.neu_khong_dat ? `<div class="rec-sub">${escapeHtml(warn.neu_khong_dat)}</div>` : ""}
-                </div>
-              </div>` : ""}
-          ` : `
-            <div class="empty-state">
-              Chưa có gợi ý cho KPI này trong <b>recommendation.js</b>.
-              <div class="muted-small" style="margin-top:6px;">(Dashboard đang đọc <code>window.RECOMMENDATIONS</code>.)</div>
-            </div>
-          `}
-        `;
+      ${(() => {
+                const priTitle = (st.key === "PASS") ? "🎯 Gợi ý duy trì / tối ưu" : "✅ Hành động ưu tiên";
+                const priList = listHTML(pri);
+                if (!priList) return "";
+                return `<div class="recommendation-box"><h5>${priTitle}</h5>${priList}</div>`;
+            })()}
+
+      ${(() => {
+                const fixTitle = (st.key === "PASS") ? "🛠️ Nếu KPI có dấu hiệu giảm" : "🛠️ Hành động khắc phục";
+                const fixList = listHTML(fix);
+                if (!fixList) return "";
+                return `<div class="recommendation-box warn"><h5>${fixTitle}</h5>${fixList}</div>`;
+            })()}
+
+      ${(!rec && st.key === "PASS") ? `
+        <div class="recommendation-box ok">
+          <h5>✅ KPI đã đạt — gợi ý duy trì</h5>
+          <ul class="rec-list">
+            <li><div class="rec-main">Duy trì quy trình hiện tại và theo dõi KPI hàng tuần.</div></li>
+            <li><div class="rec-main">Thiết lập cảnh báo khi KPI có xu hướng giảm.</div></li>
+            <li><div class="rec-main">Chuẩn hóa SOP để tránh regress khi thay đổi nhân sự/quy trình.</div></li>
+          </ul>
+        </div>` : ""}
+
+    `;
 
         modal.classList.add("active");
     }
-
 
     function showEmptyState() {
         setLoading(false);
