@@ -27,7 +27,7 @@
 
         // Fail-closed dependencies
         if (!window.GateGuard || !window.MRSM_CONFIG) {
-            window.location.href = "KO_GATE.html?reason=schema_mismatch";
+            window.location.href = "./KO_GATE.html?reason=schema_mismatch";
             return;
         }
 
@@ -83,7 +83,7 @@
                 { cause: "missing_mrsm_config_softko" }
             );
         } else {
-            window.location.href = "KO_GATE.html?reason=schema_mismatch";
+            window.location.href = "./KO_GATE.html?reason=schema_mismatch";
         }
         return new Set();
     })();
@@ -422,7 +422,7 @@
             const hasHardInPayload = !!(maybeGate?.hard?.verified_at || maybeGate?.hard?.verifiedAt || parsed?.hard_verified_at);
 
             if (!hasHard && !hasHardInPayload) {
-                window.location.href = "KO_GATE.html";
+                window.location.href = "./KO_GATE.html";
                 return;
             }
         }
@@ -436,8 +436,20 @@
             }
         } catch (_) { /* ignore */ }
 
-        assessmentData = adaptLocalData(parsed);
-        renderDashboard();
+        try {
+            assessmentData = adaptLocalData(parsed);
+            renderDashboard();
+        } catch (err) {
+            console.error("[Dashboard] Failed to render:", err);
+            try { setLoading(false); } catch (_) { /* ignore */ }
+            // Best-effort: show a simple error text if placeholder exists
+            try {
+                const ph = document.getElementById("loadingOverlay");
+                if (ph) {
+                    ph.innerHTML = "<div style=\"padding:18px;line-height:1.5\"><b>Không thể tải Dashboard</b><div style=\"opacity:.85;margin-top:6px\">Vui lòng mở DevTools (F12) để xem lỗi console và kiểm tra dữ liệu assessment_result / assessment_record.</div></div>";
+                }
+            } catch (_) { /* ignore */ }
+        }
     }
 
     function normalizeGateFromSnapshot(local) {
@@ -500,7 +512,12 @@
 
         // KPI items
         let kpis = [];
-        const bd = local.breakdown || local.kpis || local.results || local.mrsm?.breakdown || [];
+        const bdRaw = local.breakdown || local.kpis || local.results || local.mrsm?.breakdown || [];
+        const bd = Array.isArray(bdRaw)
+            ? bdRaw
+            : (bdRaw && typeof bdRaw === "object")
+                ? Object.values(bdRaw)
+                : [];
 
         for (const k of bd) {
             const value =
