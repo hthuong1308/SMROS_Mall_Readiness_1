@@ -1209,7 +1209,7 @@
         const gateStatus = (assessmentData?.gate?.status || "UNKNOWN").toUpperCase();
 
         // Prepare fixlist cache
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
+        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
 
         // 1) Top drag (top 3 by impactGap, excluding P0 hard gate if already blocked)
         if (topDragEl) {
@@ -1350,7 +1350,7 @@
     function renderParetoChart() {
         const root = $("paretoChart");
         if (!root) return;
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
+        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
 
         const top = fixlistItems.filter(x => x.gateType === "NONE" && x.impactGap > 0).slice(0, 5);
         if (!top.length) {
@@ -1407,7 +1407,7 @@
     function renderPriorityMap() {
         const root = $("priorityMap");
         if (!root) return;
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
+        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
 
         const pts = fixlistItems
             .filter(x => x.gateType === "NONE" && x.impactGap > 0)
@@ -1494,7 +1494,7 @@
     function renderFixlist() {
         const root = $("fixlist");
         if (!root) return;
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
+        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis).items;
 
         const gateStatus = (assessmentData?.gate?.status || "UNKNOWN").toUpperCase();
 
