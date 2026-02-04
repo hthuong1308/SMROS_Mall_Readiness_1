@@ -2530,22 +2530,31 @@
 
     <!-- 3️⃣ Firestore dashboard init (chỉ gọi 1 lần): prefetch dữ liệu dashboard -->
     <script type="module">
-        import { initFirestoreDashboardPrefetch } from "./firestore-dashboard.js";
-
-        initFirestoreDashboardPrefetch({
-            limit: 20,              // số bản ghi load ban đầu
-            forceModeLocal: true    // bật khi dev / demo / mock offline
-        });
-    </script>
+  // OPTIONAL: Firestore prefetch (safe - won't break if module/export missing)
+  try {
+    const mod = await import("./firestore-dashboard.js");
+    const fn = mod.initFirestoreDashboardPrefetch || mod.default || mod.init || null;
+    if (typeof fn === "function") {
+      fn({ limit: 20, forceModeLocal: true });
+    } else {
+      console.warn("[Dashboard] firestore-dashboard.js loaded but no init function exported.");
+    }
+  } catch (e) {
+    console.warn("[Dashboard] Skip Firestore prefetch:", e?.message || e);
+  }
+</script>
 
     <!-- 4️⃣ MRSM config (SSOT) -->
     <script src="./mrsm_config.js"></script>
+    <script src="./analysis_engine.js"></script>
+
 
     <!-- 5️⃣ Gate Guard (phụ thuộc MRSM_CONFIG) -->
     <script src="./gate-guard.js"></script>
 
     <!-- 6️⃣ Recommendations (có thể dùng config / meta) -->
     <script src="./recommendation.js"></script>
+    
 
     <!-- 7️⃣ Dashboard UI logic -->
     <script src="./dashboard.js"></script>
