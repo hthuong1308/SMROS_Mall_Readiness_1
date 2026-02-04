@@ -60,7 +60,7 @@ function requireHardGateEvidenceOrRedirectLocal(localAssessment) {
       localAssessment?.hard_verified_at);
 
   if (!hard && !hasHardInLocal) {
-    window.location.href = "KO_GATE.html";
+    window.location.href = "./KO_GATE.html";
     return false;
   }
   return true;
