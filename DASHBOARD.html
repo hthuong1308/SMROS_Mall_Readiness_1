@@ -2391,6 +2391,173 @@
             grid-template-columns: 1fr;
         }
     }
+
+    /* =========================================================
+   UI polish v4 — Group Chart + Gauge (Soft KO theme)
+   - Reduce excessive white
+   - Increase contrast + depth
+   - Brand accent: Shopee orange
+========================================================= */
+
+    /* Group chart container */
+    .group-chart {
+        min-height: 320px;
+        padding: 16px 0 6px;
+    }
+
+    /* Header icon + chips */
+    .gc-icon {
+        background: linear-gradient(180deg, var(--cam-nhat), #fff);
+        border-color: rgba(238, 77, 45, .22);
+        box-shadow: 0 6px 16px rgba(238, 77, 45, .10);
+    }
+
+    .gc-chip {
+        background: rgba(255, 255, 255, .85);
+        border-color: rgba(238, 77, 45, .18);
+    }
+
+    .gc-chip span.p0,
+    .gc-chip span.p1,
+    .gc-chip span.p2 {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        display: inline-block;
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, .9);
+    }
+
+    .gc-chip span.p0 {
+        background: var(--nguy-hiem);
+    }
+
+    .gc-chip span.p1 {
+        background: var(--cam);
+    }
+
+    .gc-chip span.p2 {
+        background: var(--tot);
+    }
+
+    /* Plot area */
+    .gc-area {
+        border: 1px solid rgba(238, 77, 45, .22);
+        background:
+            radial-gradient(900px 240px at 12% 0%, rgba(238, 77, 45, .14), rgba(238, 77, 45, 0) 55%),
+            radial-gradient(700px 200px at 92% 16%, rgba(37, 99, 235, .08), rgba(37, 99, 235, 0) 55%),
+            linear-gradient(180deg, #ffffff, #fff7f3);
+        box-shadow: 0 14px 34px rgba(17, 24, 39, .08);
+    }
+
+    /* Gridlines: dashed + warmer tone */
+    .gc-gridline {
+        border-top: 1px dashed rgba(238, 77, 45, .22);
+    }
+
+    .gc-gridline::before {
+        background: rgba(255, 255, 255, .90);
+        border: 1px solid rgba(238, 77, 45, .10);
+    }
+
+    /* Bars area: bigger + less cramped */
+    .gc-bars {
+        height: 240px;
+        gap: 20px;
+        padding-top: 14px;
+    }
+
+    .gc-track {
+        height: 200px;
+        padding: 8px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(229, 231, 235, .68));
+        border: 1px solid rgba(17, 24, 39, .06);
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, .90),
+            inset 0 -10px 18px rgba(17, 24, 39, .05);
+    }
+
+    .gc-fill {
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        border-radius: 16px;
+        background: linear-gradient(180deg, rgba(238, 77, 45, .98), rgba(238, 77, 45, .22));
+        box-shadow: 0 14px 22px rgba(238, 77, 45, .14);
+    }
+
+    .gc-fill::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(180deg, rgba(255, 255, 255, .35), rgba(255, 255, 255, 0) 58%);
+        pointer-events: none;
+    }
+
+    .gc-fill.weak {
+        background: linear-gradient(180deg, rgba(220, 38, 38, .98), rgba(220, 38, 38, .18));
+        box-shadow: 0 14px 22px rgba(220, 38, 38, .16);
+    }
+
+    .gc-sub {
+        letter-spacing: .01em;
+    }
+
+    .gc-col .gc-h {
+        font-size: 18px;
+        font-weight: 1100;
+    }
+
+    /* =========================================================
+   Gauge polish (Soft KO theme)
+========================================================= */
+    .gauge-wrap {
+        background:
+            radial-gradient(650px 220px at 18% 0%, rgba(238, 77, 45, .16), rgba(238, 77, 45, 0) 58%),
+            linear-gradient(180deg, rgba(255, 255, 255, .92), #fff7f3);
+        border: 1px solid rgba(238, 77, 45, .22);
+        box-shadow: 0 14px 34px rgba(17, 24, 39, .10);
+        border-radius: 18px;
+        padding: 12px 14px;
+    }
+
+    .gauge-track,
+    .gauge-seg,
+    .gauge-progress {
+        stroke-width: 14;
+    }
+
+    .gauge-track {
+        stroke: rgba(17, 24, 39, .12);
+    }
+
+    .gauge-seg.seg-orange {
+        stroke: var(--cam);
+    }
+
+    .gauge-seg.seg-green {
+        stroke: var(--tot);
+    }
+
+    /* xanh lá cho >=70 */
+    .gauge-progress {
+        stroke: var(--cam);
+    }
+
+    .needle-line {
+        stroke: rgba(17, 24, 39, .88);
+        stroke-width: 4;
+    }
+
+    .needle-hub {
+        fill: rgba(17, 24, 39, .92);
+    }
+
+    .gauge-label {
+        fill: rgba(107, 114, 128, .95);
+        font-weight: 900;
+    }
 </style>
 
 <body class="is-loading">
