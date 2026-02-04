@@ -1583,27 +1583,54 @@
             return hay.includes(search);
         });
 
-        // Table
+        // Table (match DASHBOARD.html headers)
         if (tbody) {
             tbody.innerHTML = filtered.map((k) => {
                 const score = Math.round(Number(k.score ?? 0));
-                const w = round2(Number(k.weight_final ?? 0));
                 const imp = round2(Number(k.impactGap ?? 0));
                 const pr = k.priority || "P3";
                 const tagCls = pr === "P0" ? "p0" : pr === "P1" ? "p1" : pr === "P2" ? "p2" : "p3";
-                return `<tr data-kpi="${escapeHtml(k.kpiId)}">
+                const groupName = normalizeGroupName(k.group) || "";
+                const hasRec = !!getRecommendation(k.kpiId);
+                const scoreCls = (score >= 90) ? "s100" : (score >= 45) ? "s50" : "s0";
+                return `<tr data-kpi="${escapeHtml(k.kpiId)}" role="button" tabindex="0">
                   <td><span class="kpi-pill">${escapeHtml(k.kpiId)}</span></td>
-                  <td>${escapeHtml(k.name || "")}</td>
-                  <td><span class="tag ${tagCls}">${escapeHtml(pr)}</span></td>
-                  <td>${escapeHtml(normalizeGroupName(k.group) || "")}</td>
-                  <td>${score}</td>
-                  <td>${w}</td>
-                  <td>${imp}</td>
+                  <td>
+                    <div class="kpi-name">${escapeHtml(k.name || "")}</div>
+                    <div class="kpi-sub">
+                      <span class="tag ${tagCls}">${escapeHtml(pr)}</span>
+                      <span class="muted-small">WF: ${round2(Number(k.weight_final ?? 0))}</span>
+                    </div>
+                  </td>
+                  <td>${escapeHtml(groupName)}</td>
+                  <td><span class="score-badge ${scoreCls}">${score}</span></td>
+                  <td><span class="impact-badge">${imp}</span></td>
+                  <td>
+                    <button class="btn-rec" data-kpi="${escapeHtml(k.kpiId)}" ${hasRec ? "" : "data-empty=1 disabled"} ${hasRec ? "" : "disabled"}>
+                      ${hasRec ? "Xem" : "Chưa có"}
+                    </button>
+                  </td>
                 </tr>`;
             }).join("");
 
+            // Row click opens modal
             tbody.querySelectorAll("tr").forEach((tr) => {
                 tr.addEventListener("click", () => openKpiModal(tr.getAttribute("data-kpi")));
+                tr.addEventListener("keydown", (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openKpiModal(tr.getAttribute("data-kpi"));
+                    }
+                });
+            });
+
+            // Recommendation button (prevents row click double-trigger)
+            tbody.querySelectorAll(".btn-rec").forEach((btn) => {
+                btn.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openKpiModal(btn.getAttribute("data-kpi"));
+                });
             });
         }
 
@@ -1663,15 +1690,25 @@
             });
         }
 
-        // Modal close
+        // Modal close (CSS uses .modal.active)
         const modal = $("kpiModal");
         const close = $("modalClose");
-        if (close && modal) close.addEventListener("click", () => modal.classList.remove("open"));
-        if (modal) {
-            modal.addEventListener("click", (e) => {
-                if (e.target === modal) modal.classList.remove("open");
-            });
-        }
+        const overlay = modal ? modal.querySelector(".modal-overlay") : null;
+
+        const closeModal = () => {
+            if (!modal) return;
+            modal.classList.remove("active");
+            // Optional: clear body to avoid stale HTML
+            const body = $("modalBody");
+            if (body) body.innerHTML = "";
+        };
+
+        if (close) close.addEventListener("click", closeModal);
+        if (overlay) overlay.addEventListener("click", closeModal);
+        // Escape to close
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape") closeModal();
+        });
 
         // Fixlist click is bound in renderFixlist
     }
@@ -1782,7 +1819,7 @@
           `}
         `;
 
-        modal.classList.add("open");
+        modal.classList.add("active");
     }
 
 
