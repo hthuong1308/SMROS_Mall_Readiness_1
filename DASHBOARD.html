@@ -387,66 +387,7 @@
         line-height: 1.5;
         font-weight: 700
     }
-.insight-card{
-  border: 1px solid rgba(238,77,45,.22);
-  box-shadow: 0 12px 30px rgba(17,24,39,.10);
-  background: linear-gradient(180deg, #fff, #fff7f3);
-  position: relative;
-  overflow: hidden;
-}
 
-/* “accent top bar” */
-.insight-card::before{
-  content:"";
-  position:absolute;
-  left:0; top:0;
-  height:4px; width:100%;
-  background: linear-gradient(90deg, var(--cam), rgba(238,77,45,.35));
-  opacity: .95;
-}
-
-/* Title/subtitle rõ hơn */
-.insight-title{
-  font-size: 14px;
-  font-weight: 1100;
-  color: var(--chu);
-}
-.insight-sub{
-  color: rgba(17,24,39,.72);
-  font-weight: 800;
-}
-
-/* Body text rõ hơn */
-.insight-body{
-  color: rgba(17,24,39,.86);
-  font-weight: 850;
-}
-
-/* KPI pill nổi bật hơn */
-.kpi-pill{
-  border-color: rgba(238,77,45,.20);
-  box-shadow: 0 10px 22px rgba(238,77,45,.08);
-}
-.kpi-pill:hover{
-  border-color: rgba(238,77,45,.55);
-  box-shadow: 0 14px 30px rgba(238,77,45,.14);
-}
-
-/* KPI ID dùng accent để “đập vào mắt” */
-.kpi-pill-id{
-  color: var(--cam);
-}
-
-/* Impact text mạnh hơn */
-.kpi-pill-impact{
-  color: var(--chu);
-  font-weight: 1100;
-}
-
-/* Skeleton bớt nhạt */
-.insight-skeleton{
-  background: linear-gradient(90deg, #f3f4f6, #fff7f3, #f3f4f6);
-}
     /* ========================
    INFO LIST
    ======================== */
@@ -2617,6 +2558,159 @@
         fill: rgba(107, 114, 128, .95);
         font-weight: 900;
     }
+
+    /* =========================================================
+   INSIGHT CARDS — High-contrast "see it instantly" mode
+   (only affects top snapshot cards)
+========================================================= */
+    .insight-grid {
+        gap: 14px;
+    }
+
+    .insight-card {
+        border: 1px solid rgba(15, 23, 42, .10);
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 18px 44px rgba(15, 23, 42, .12);
+        position: relative;
+        overflow: hidden;
+        transform: translateZ(0);
+        transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+
+    .insight-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 26px 62px rgba(15, 23, 42, .18);
+        border-color: rgba(238, 77, 45, .28);
+    }
+
+    /* Left color stripe */
+    .insight-card::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 6px;
+        height: 100%;
+        background: linear-gradient(180deg, rgba(238, 77, 45, 1), rgba(238, 77, 45, .35));
+    }
+
+    /* Color variants (by card type) */
+    .insight-card--risk::before {
+        background: linear-gradient(180deg, #22c55e, #86efac);
+    }
+
+    .insight-card--weak::before {
+        background: linear-gradient(180deg, #ef4444, #fecaca);
+    }
+
+    .insight-card--kpi::before {
+        background: linear-gradient(180deg, #3b82f6, #bfdbfe);
+    }
+
+    .insight-card--top::before {
+        background: linear-gradient(180deg, #f59e0b, #fde68a);
+    }
+
+    /* Slight tinted backdrop to increase separation from page */
+    .insight-card--top {
+        background: linear-gradient(180deg, #fff, rgba(245, 158, 11, .06));
+    }
+
+    .insight-card--risk {
+        background: linear-gradient(180deg, #fff, rgba(34, 197, 94, .06));
+    }
+
+    .insight-card--kpi {
+        background: linear-gradient(180deg, #fff, rgba(59, 130, 246, .06));
+    }
+
+    .insight-card--weak {
+        background: linear-gradient(180deg, #fff, rgba(239, 68, 68, .05));
+    }
+
+    .insight-head {
+        padding: 14px 14px 8px 16px;
+        align-items: flex-start;
+    }
+
+    .insight-title {
+        font-size: 14px;
+        font-weight: 1200;
+        color: rgba(15, 23, 42, .96);
+        letter-spacing: .2px;
+    }
+
+    .insight-sub {
+        font-size: 12px;
+        font-weight: 900;
+        color: rgba(15, 23, 42, .60);
+    }
+
+    .insight-body {
+        padding: 0 14px 14px 16px;
+        color: rgba(15, 23, 42, .88);
+        font-weight: 850;
+    }
+
+    /* Make key numbers/keywords pop even if injected as <strong>/<b> */
+    .insight-body strong,
+    .insight-body b {
+        font-weight: 1400;
+        color: rgba(15, 23, 42, .96);
+    }
+
+    /* If dashboard.js uses these common classnames, they will pop automatically */
+    .insight-body .insight-metric,
+    .insight-body .metric,
+    .insight-body .big,
+    .insight-body .value-big {
+        margin-top: 6px;
+        font-size: 26px;
+        font-weight: 1400;
+        letter-spacing: .2px;
+        color: rgba(15, 23, 42, .96);
+        line-height: 1.05;
+    }
+
+    /* KPI pill inside insight becomes a prominent chip */
+    .insight-card .kpi-pill {
+        border-radius: 14px;
+        padding: 10px 12px;
+        background: rgba(238, 77, 45, .06);
+        border: 1px solid rgba(238, 77, 45, .18);
+        box-shadow: 0 14px 26px rgba(238, 77, 45, .10);
+    }
+
+    .insight-card .kpi-pill:hover {
+        border-color: rgba(238, 77, 45, .55);
+        box-shadow: 0 18px 34px rgba(238, 77, 45, .16);
+    }
+
+    .insight-card .kpi-pill-id {
+        color: rgba(238, 77, 45, 1);
+        font-weight: 1400;
+        letter-spacing: .4px;
+    }
+
+    .insight-card .kpi-pill-impact {
+        color: rgba(15, 23, 42, .92);
+        font-weight: 1200;
+    }
+
+    /* Gate badge if injected into insight body */
+    .insight-card .gate-badge,
+    .insight-card .badge.gate {
+        border-radius: 999px;
+        padding: 10px 12px;
+        font-weight: 1300;
+        box-shadow: 0 14px 26px rgba(15, 23, 42, .10);
+    }
+
+    /* Skeleton a bit stronger */
+    .insight-skeleton {
+        background: linear-gradient(90deg, #f3f4f6, #fff7f3, #f3f4f6);
+    }
 </style>
 
 <body class="is-loading">
@@ -2796,7 +2890,7 @@
 
             <!-- Insight Cards (BI-style quick read) -->
             <section class="insight-grid" aria-label="Insight snapshot">
-                <div class="insight-card" id="insightTopDrag">
+                <div class="insight-card insight-card--top" id="insightTopDrag">
                     <div class="insight-head">
                         <div class="insight-title">🚨 Top KPI kéo tụt readiness</div>
                         <div class="insight-sub">Top 3 theo ImpactGap</div>
@@ -2806,7 +2900,7 @@
                     </div>
                 </div>
 
-                <div class="insight-card" id="insightGateRisk">
+                <div class="insight-card insight-card--risk" id="insightGateRisk">
                     <div class="insight-head">
                         <div class="insight-title">⚠️ Gate Risk</div>
                         <div class="insight-sub">Trạng thái điều kiện</div>
@@ -2815,7 +2909,7 @@
                         <div class="insight-skeleton">Đang tải…</div>
                     </div>
                 </div>
-                <div class="insight-card" id="insightCoverage">
+                <div class="insight-card insight-card--kpi" id="insightCoverage">
                     <div class="insight-head">
                         <div class="insight-title">🧾 KPI Coverage</div>
                         <div class="insight-sub">Độ đầy đủ dữ liệu</div>
@@ -2825,7 +2919,7 @@
                     </div>
                 </div>
 
-                <div class="insight-card" id="insightWeakestGroup">
+                <div class="insight-card insight-card--weak" id="insightWeakestGroup">
                     <div class="insight-head">
                         <div class="insight-title">📉 Nhóm yếu nhất</div>
                         <div class="insight-sub">So sánh điểm 4 nhóm</div>
@@ -3022,4 +3116,3 @@
 </body>
 
 </html>
-
