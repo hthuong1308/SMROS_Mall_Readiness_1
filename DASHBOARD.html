@@ -2932,6 +2932,264 @@
         color: rgba(15, 23, 42, .75);
         font-weight: 850;
     }
+
+
+    /* =========================
+   DASHBOARD THEME (closer to KPI_SCORING.html)
+   More color layers + depth, less "white sheet"
+========================= */
+    :root {
+        --shopee: #EE4D2D;
+        --bgA: #F3F6FB;
+        --bgB: #EEF2F7;
+        --ink: #0f172a;
+        --ink2: rgba(15, 23, 42, .78);
+        --line2: rgba(15, 23, 42, .10);
+        --cardShadow: 0 22px 60px rgba(15, 23, 42, .10);
+        --cardShadowHover: 0 30px 72px rgba(15, 23, 42, .16);
+        --radius-lg: 20px;
+    }
+
+    /* Page background */
+    body {
+        background: linear-gradient(180deg, var(--bgA) 0%, var(--bgB) 100%) !important;
+    }
+
+    /* Main content wrappers (safe) */
+    .dashboard-container,
+    .dashboard-content,
+    .container,
+    .wrap,
+    main {
+        background: transparent !important;
+    }
+
+    /* Section surfaces */
+    .section,
+    .dashboard-section,
+    .panel,
+    .block,
+    .card-section {
+        border-radius: var(--radius-lg) !important;
+        border: 1px solid var(--line2) !important;
+        box-shadow: var(--cardShadow) !important;
+        background: linear-gradient(180deg, #ffffff 0%, #f9fafc 100%) !important;
+    }
+
+    /* Section headers: stronger + stripe */
+    .section-head,
+    .section-header,
+    .panel-head,
+    .block-head,
+    .card-head {
+        background: linear-gradient(135deg, #0f172a, #111827) !important;
+        color: #fff !important;
+        border-bottom: none !important;
+        position: relative;
+    }
+
+    .section-head::after,
+    .section-header::after,
+    .panel-head::after,
+    .block-head::after,
+    .card-head::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        height: 4px;
+        background: linear-gradient(90deg, var(--shopee), rgba(238, 77, 45, .25));
+    }
+
+    /* Titles */
+    .section-title,
+    .panel-title,
+    .block-title,
+    .card-title,
+    h2,
+    h3 {
+        color: #fff;
+        font-weight: 1000;
+    }
+
+    /* Typography tuning */
+    body,
+    .muted,
+    .subtext {
+        color: var(--ink);
+    }
+
+    .muted,
+    .subtext {
+        color: rgba(15, 23, 42, .62) !important;
+        font-weight: 800 !important;
+    }
+
+    /* Insight cards: more punch + stripe color */
+    .insight-grid {
+        gap: 14px !important;
+    }
+
+    .insight-card {
+        border-radius: 18px !important;
+        border: 1px solid rgba(15, 23, 42, .10) !important;
+        box-shadow: 0 18px 44px rgba(15, 23, 42, .12) !important;
+        background: linear-gradient(180deg, #ffffff 0%, #ffffff 60%, rgba(238, 77, 45, .04) 100%) !important;
+        overflow: hidden;
+        position: relative;
+        transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+
+    .insight-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 26px 62px rgba(15, 23, 42, .18) !important;
+        border-color: rgba(238, 77, 45, .28) !important;
+    }
+
+    .insight-card::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 6px;
+        height: 100%;
+        background: linear-gradient(180deg, rgba(238, 77, 45, 1), rgba(238, 77, 45, .35));
+    }
+
+    .insight-card--risk::before {
+        background: linear-gradient(180deg, #22c55e, #86efac);
+    }
+
+    .insight-card--weak::before {
+        background: linear-gradient(180deg, #ef4444, #fecaca);
+    }
+
+    .insight-card--kpi::before {
+        background: linear-gradient(180deg, #3b82f6, #bfdbfe);
+    }
+
+    .insight-card--top::before {
+        background: linear-gradient(180deg, #f59e0b, #fde68a);
+    }
+
+    .insight-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(238, 77, 45, .10);
+        border: 1px solid rgba(238, 77, 45, .20);
+        font-size: 16px;
+    }
+
+    .insight-title {
+        font-size: 14px !important;
+        font-weight: 1200 !important;
+        color: rgba(15, 23, 42, .95) !important;
+    }
+
+    .insight-sub {
+        font-size: 12px !important;
+        font-weight: 900 !important;
+        color: rgba(15, 23, 42, .60) !important;
+    }
+
+    .insight-metric {
+        margin-top: 6px;
+        font-size: 28px;
+        font-weight: 1400;
+        color: rgba(15, 23, 42, .96);
+        line-height: 1.05;
+        letter-spacing: .2px;
+    }
+
+    /* KPI pill */
+    .kpi-pill {
+        background: rgba(238, 77, 45, .06) !important;
+        border: 1px solid rgba(238, 77, 45, .18) !important;
+        box-shadow: 0 14px 26px rgba(238, 77, 45, .10) !important;
+        border-radius: 14px !important;
+    }
+
+    .kpi-pill-id {
+        color: var(--shopee) !important;
+        font-weight: 1400 !important;
+    }
+
+    .kpi-pill-impact {
+        color: rgba(15, 23, 42, .90) !important;
+        font-weight: 1200 !important;
+    }
+
+    /* Gate badge */
+    .gate-pill {
+        border-radius: 999px !important;
+        padding: 10px 12px !important;
+        font-weight: 1300 !important;
+        border: 1px solid rgba(34, 197, 94, .28) !important;
+        background: rgba(34, 197, 94, .10) !important;
+        box-shadow: 0 14px 26px rgba(34, 197, 94, .12) !important;
+    }
+
+    /* Fixlist & KPI table surfaces */
+    .fixlist-card,
+    .fixlist-item,
+    .fix-card {
+        background: linear-gradient(180deg, #ffffff, #fff4f1) !important;
+        border: 1px solid rgba(238, 77, 45, .18) !important;
+        box-shadow: 0 16px 40px rgba(238, 77, 45, .10) !important;
+        border-radius: 16px !important;
+    }
+
+    .table-toolbar,
+    .kpi-toolbar,
+    .filter-row {
+        background: linear-gradient(180deg, #ffffff, #f6f9ff) !important;
+        border: 1px solid rgba(59, 130, 246, .18) !important;
+        box-shadow: 0 18px 44px rgba(59, 130, 246, .08) !important;
+        border-radius: 16px !important;
+    }
+
+    .table-wrap,
+    .kpi-table-wrap,
+    .table-container {
+        background: linear-gradient(180deg, #ffffff, #f6f9ff) !important;
+        border: 1px solid rgba(59, 130, 246, .18) !important;
+        box-shadow: 0 20px 60px rgba(59, 130, 246, .08) !important;
+        border-radius: 20px !important;
+        overflow: hidden;
+    }
+
+    /* Table header + zebra + hover */
+    thead th {
+        background: linear-gradient(180deg, #f1f5ff, #ffffff) !important;
+        color: rgba(15, 23, 42, .82) !important;
+        font-weight: 1200 !important;
+        border-bottom: 1px solid rgba(15, 23, 42, .10) !important;
+    }
+
+    tbody tr:nth-child(odd) {
+        background: rgba(59, 130, 246, .03) !important;
+    }
+
+    tbody tr:hover {
+        background: rgba(238, 77, 45, .07) !important;
+    }
+
+    /* KPI chips in table */
+    .kpi-code,
+    .kpi-chip,
+    .pill-kpi {
+        background: #fff !important;
+        border: 1px solid rgba(15, 23, 42, .12) !important;
+        border-radius: 14px !important;
+        padding: 8px 12px !important;
+        font-weight: 1200 !important;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, .07) !important;
+    }
 </style>
 
 <body class="is-loading">
