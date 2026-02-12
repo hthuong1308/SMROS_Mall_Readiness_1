@@ -1,2087 +1,3597 @@
-// ============================================================
-// DASHBOARD.JS (Fail-closed + Local-first view)
-// - Require: mrsm_config.js, gate-guard.js, recommendation.js loaded BEFORE this file
-// - Workflow:
-//   + Must have assessment_id context
-//   + Must have Hard gate evidence (validatedHardKO) (fail-closed)
-//   + Soft gate is allowed NOT PASS (Dashboard shows G0/G1/G2/PASS)
-//   + assessment_result is OPTIONAL: if missing -> show empty state (go KPI_SCORING)
-// ============================================================
+<!DOCTYPE html>
+<html lang="vi">
 
-/* global MRSM_CONFIG, GateGuard, RECOMMENDATIONS */
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard – Shopee Mall Readiness</title>
+</head>
+<style>
+    :root {
+        --cam: #ee4d2d;
+        --cam-nhat: #ffefe9;
+        --nen: #f6f7fb;
+        --trang: #ffffff;
+        --chu: #111827;
+        --chu-phu: #6b7280;
+        --duong-ke: #e5e7eb;
 
-(() => {
-    "use strict";
+        --tot: #16a34a;
+        --tot-nen: #ecfdf3;
 
-    // =========================================================
-    // Fail-safe: never keep loading overlay stuck on JS errors
-    // =========================================================
-    function __dashboardFailSafeHideLoading() {
-        try {
-            const overlay = document.getElementById("loadingOverlay");
-            if (overlay) overlay.style.display = "none";
-            document.body && document.body.classList.remove("is-loading");
-        } catch (_) { }
-    }
-    window.addEventListener("error", () => __dashboardFailSafeHideLoading());
-    window.addEventListener("unhandledrejection", () => __dashboardFailSafeHideLoading());
+        --canh-bao: #f59e0b;
+        --canh-bao-nen: #fff7ed;
 
+        --nguy-hiem: #dc2626;
+        --nguy-hiem-nen: #fff1f2;
 
-    // ========================
-    // DOM helpers / State
-    // ========================
-    const $ = (id) => document.getElementById(id);
-
-    let assessmentData = null;
-    let allKpis = [];
-    let sortDirection = "desc";
-
-    document.addEventListener("DOMContentLoaded", () => {
-        setLoading(true);
-
-        // Fail-closed dependencies
-        if (!window.GateGuard || !window.MRSM_CONFIG) {
-            window.location.href = "KO_GATE.html?reason=schema_mismatch";
-            return;
-        }
-
-        // =========================================
-        // Assessment context (GitHub Pages friendly)
-        // - Từ RESULTS, link có thể là:
-        //   + ?assessment_id=LOCAL_...
-        //   + ?mode=local (không kèm assessment_id)
-        // Dashboard cần tự "bắt" aid từ query OR current_assessment_id.
-        // =========================================
-        const qs = new URL(window.location.href).searchParams;
-        const isLocalMode = qs.get("mode") === "local" || !qs.get("assessment_id");
-
-        const aidFromQuery = qs.get("assessment_id") || "";
-        const aidFromSticky =
-            sessionStorage.getItem("current_assessment_id") ||
-            localStorage.getItem("current_assessment_id") ||
-            "";
-
-        // GateGuard có thể tự suy ra aid (nếu implement có fallback)
-        const aidFromGuard =
-            (window.GateGuard && typeof window.GateGuard.getAssessmentContext === "function")
-                ? (window.GateGuard.getAssessmentContext({ redirectOnMissing: false }) || "")
-                : "";
-
-        const aid = aidFromQuery || aidFromSticky || aidFromGuard;
-
-        // Require Hard evidence (fail-closed)
-        if (!window.GateGuard.requireHardGateOrRedirect({ redirectOnMissing: true })) return;
-
-        // Soft gate should exist to show G1/G2/PASS properly.
-        // If missing -> redirect to SOFT_KO (fail-closed)
-        if (!window.GateGuard.requireSoftGateOrRedirect({ redirectOnMissing: true })) return;
-
-        // Nếu không có aid và cũng không có assessment_result/record => show empty (không redirect vòng lặp)
-        loadData({ preferredAssessmentId: aid, isLocalMode });
-    });
-
-    // ========================
-    // SSOT: Soft KO IDs
-    // ========================
-    const SOFT_KO_IDS = (() => {
-        const registry = window.MRSM_CONFIG?.GateRegistry;
-        if (registry && Array.isArray(registry.softKoIds) && registry.softKoIds.length) {
-            return new Set(registry.softKoIds.map((x) => normalizeKpiId(x)));
-        }
-
-        // Fail-closed if missing MRSM_CONFIG GateRegistry
-        if (window.GateGuard?.attachReasonAndRedirect) {
-            window.GateGuard.attachReasonAndRedirect(
-                "./KO_GATE.html",
-                window.GateGuard.REASON_CODES.SCHEMA_MISMATCH,
-                { cause: "missing_mrsm_config_softko" }
-            );
-        } else {
-            window.location.href = "KO_GATE.html?reason=schema_mismatch";
-        }
-        return new Set();
-    })();
-
-    // ========================
-    // Normalizers
-    // ========================
-    function normalizeKpiId(item) {
-        const normalize = (v) =>
-            String(v ?? "")
-                .trim()
-                .replace(/[\u2010\u2011\u2012\u2013\u2014\u2212]/g, "-")
-                .replace(/\s+/g, "")
-                .toUpperCase();
-
-        const looksLikeKpi = (s) => /^([A-Z]{2,4}|CAT|PEN|KO)-[A-Z0-9]{2,}$/i.test(s);
-
-        const candidates = [
-            item?.kpiId,
-            item?.kpi_id,
-            item?.KPI_ID,
-            item?.rule_id,
-            item?.ruleId,
-            item?.Rule_ID,
-            item?.RuleID,
-            item?.kpi_code,
-            item?.kpiCode,
-            item?.ma_kpi,
-            item?.maKpi,
-            item?.code,
-            item?.metric_id,
-            item?.kpi,
-            item?.id,
-        ];
-
-        for (const c of candidates) {
-            const s = normalize(c);
-            if (s && looksLikeKpi(s)) return s;
-        }
-
-        if (item && typeof item === "object") {
-            for (const v of Object.values(item)) {
-                const s = normalize(v);
-                if (s && looksLikeKpi(s)) return s;
-            }
-        }
-
-        return normalize(item ?? "");
+        --xanh: #2563eb;
+        --xanh-nen: #eff6ff;
     }
 
-    function normalizeGroupName(group) {
-        const g = String(group || "").trim().toLowerCase();
-        if (!g) return "";
-        if (g === "operation" || g.includes("ops") || g.includes("vận hành") || g.includes("van hanh")) return "Vận hành";
-        if (g === "brand" || g.includes("thương hiệu") || g.includes("thuong hieu")) return "Thương hiệu";
-        if (g === "category" || g.includes("danh mục") || g.includes("danh muc")) return "Danh mục";
-        if (g === "scale" || g.includes("quy mô") || g.includes("quy mo")) return "Quy mô";
-        if (g === "service" || g.includes("dịch vụ") || g.includes("dich vu")) return "Dịch vụ";
-        return group;
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box
     }
 
-    function groupOf(kpiId) {
-        const id = (kpiId || "").toUpperCase();
-        if (id.startsWith("OP-") || id.startsWith("PEN-") || id.startsWith("CO-")) return "Vận hành";
-        if (id.startsWith("BR-")) return "Thương hiệu";
-        if (id.startsWith("CAT-")) return "Danh mục";
-        if (id.startsWith("CS-")) return "Dịch vụ";
-        if (id.startsWith("SC-")) return "Quy mô";
-        return "Khác";
+    body {
+        font-family: system-ui, -apple-system, sans-serif;
+        background: var(--nen);
+        color: var(--chu);
+        line-height: 1.5;
     }
 
-    // ========================
-    // Recommendation accessors
-    // ========================
-    function getRecommendation(kpiId) {
-        try {
-            const id = normalizeKpiId(kpiId);
-            return window.RECOMMENDATIONS && window.RECOMMENDATIONS[id] ? window.RECOMMENDATIONS[id] : null;
-        } catch (_) {
-            return null;
+    svg text {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif
+    }
+
+    /* ===== Force font + smoothing đồng nhất toàn trang ===== */
+    html,
+    body,
+    button,
+    input,
+    select,
+    textarea {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: geometricPrecision;
+    }
+
+    /* ===== Force font-weight và letter rendering cho nút ===== */
+    .btn-header,
+    .btn-header * {
+        font-family: inherit !important;
+        font-weight: 800 !important;
+        letter-spacing: .01em;
+    }
+
+    /* Nếu trong nút có b/strong -> ép lại */
+    .btn-header b,
+    .btn-header strong {
+        font-weight: 800 !important;
+    }
+
+
+    /* ========================
+   HEADER
+   ======================== */
+    .dashboard-header {
+        background: var(--trang);
+        border-bottom: 2px solid var(--duong-ke);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
+
+    .header-container {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 20px 32px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+    }
+
+    .header-left {
+        display: flex;
+        align-items: center;
+        gap: 16px
+    }
+
+    .logo {
+        background: var(--cam);
+        color: var(--trang);
+        font-weight: 800;
+        font-size: 16px;
+        padding: 8px 14px;
+        border-radius: 10px;
+    }
+
+    .header-title {
+        font-size: 20px;
+        font-weight: 800;
+        color: var(--chu)
+    }
+
+    .header-right {
+        display: flex;
+        gap: 12px
+    }
+
+    .btn-header {
+        padding: 10px 20px;
+        border: 1px solid var(--duong-ke);
+        border-radius: 10px;
+        background: var(--trang);
+        color: var(--chu);
+        font-size: 14px;
+        font-weight: 800;
+        cursor: pointer;
+        transition: all .2s;
+    }
+
+    .btn-header:hover {
+        border-color: var(--cam);
+        box-shadow: 0 2px 10px rgba(238, 77, 45, .15);
+        transform: translateY(-1px);
+    }
+
+    .btn-header.btn-primary {
+        background: var(--cam);
+        color: var(--trang);
+        border-color: var(--cam);
+    }
+
+    .btn-header.btn-primary:hover {
+        background: #d73211;
+        border-color: #d73211;
+    }
+
+    /* Progress */
+    .progress-bar-container {
+        padding: 16px 32px;
+        border-top: 1px solid var(--duong-ke);
+    }
+
+    .progress-bar {
+        max-width: 600px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+    }
+
+    .progress-step {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--chu-phu);
+        font-weight: 800;
+    }
+
+    .step-dot {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: var(--duong-ke);
+        color: var(--chu-phu);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        font-size: 14px;
+    }
+
+    .progress-step.completed .step-dot {
+        background: var(--tot);
+        color: var(--trang)
+    }
+
+    .progress-step.active .step-dot {
+        background: var(--cam);
+        color: var(--trang)
+    }
+
+    .progress-step.completed,
+    .progress-step.active {
+        color: var(--chu)
+    }
+
+    .progress-line {
+        width: 80px;
+        height: 2px;
+        background: var(--duong-ke)
+    }
+
+    .progress-line.completed,
+    .progress-line.active {
+        background: var(--cam)
+    }
+
+    /* ========================
+   LAYOUT
+   ======================== */
+    .dashboard-container {
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 32px;
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 32px;
+        align-items: start;
+    }
+
+    /* ========================
+   SIDEBAR
+   ======================== */
+    .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        position: sticky;
+        top: 180px;
+    }
+
+    /* ========================
+   CARD
+   ======================== */
+    .card {
+        background: var(--trang);
+        border: 1px solid var(--duong-ke);
+        border-radius: 14px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, .04);
+        overflow: hidden;
+        transition: all .2s;
+    }
+
+    .card:hover {
+        box-shadow: 0 6px 18px rgba(0, 0, 0, .08);
+        transform: translateY(-2px);
+    }
+
+    .card-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--duong-ke);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--nen);
+    }
+
+    .card-icon {
+        font-size: 20px
+    }
+
+    .card-header h3 {
+        font-size: 15px;
+        font-weight: 900;
+        color: var(--chu)
+    }
+
+    .card-body {
+        padding: 20px
+    }
+
+    /* ========================
+   SCORE CIRCLE
+   ======================== */
+    .score-circle {
+        position: relative;
+        width: 200px;
+        height: 200px;
+        margin: 0 auto 20px;
+    }
+
+    .donut-chart {
+        width: 100%;
+        height: 100%
+    }
+
+    .score-content {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+    }
+
+    .score-value {
+        font-size: 48px;
+        font-weight: 1000;
+        color: var(--cam);
+        line-height: 1
+    }
+
+    .score-label {
+        font-size: 18px;
+        color: var(--chu-phu);
+        font-weight: 800
+    }
+
+    .tier-badge {
+        text-align: center;
+        padding: 10px 16px;
+        border-radius: 999px;
+        font-size: 14px;
+        font-weight: 1000;
+        margin-bottom: 12px;
+    }
+
+    .tier-badge.tier-ready {
+        background: var(--tot-nen);
+        color: var(--tot)
+    }
+
+    .tier-badge.tier-near {
+        background: var(--xanh-nen);
+        color: var(--xanh)
+    }
+
+    .tier-badge.tier-partial {
+        background: var(--canh-bao-nen);
+        color: var(--canh-bao)
+    }
+
+    .tier-badge.tier-not-ready {
+        background: var(--nguy-hiem-nen);
+        color: var(--nguy-hiem)
+    }
+
+    .tier-note {
+        text-align: center;
+        font-size: 13px;
+        color: var(--chu-phu);
+        line-height: 1.5;
+        font-weight: 700
+    }
+
+    /* ========================
+   GATE STATUS
+   ======================== */
+    .gate-status {
+        text-align: center
+    }
+
+    .gate-badge {
+        display: inline-block;
+        padding: 8px 16px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 1000;
+        margin-bottom: 12px;
+    }
+
+    .gate-badge.pass {
+        background: var(--tot-nen);
+        color: var(--tot)
+    }
+
+    .gate-badge.blocked {
+        background: var(--nguy-hiem-nen);
+        color: var(--nguy-hiem)
+    }
+
+    .gate-badge.pending {
+        background: var(--canh-bao-nen);
+        color: var(--canh-bao)
+    }
+
+    .gate-description {
+        font-size: 13px;
+        color: var(--chu-phu);
+        line-height: 1.5;
+        font-weight: 700
+    }
+
+    /* ========================
+   INFO LIST
+   ======================== */
+    .info-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px
+    }
+
+    .info-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--duong-ke);
+    }
+
+    .info-item:last-child {
+        border-bottom: none;
+        padding-bottom: 0
+    }
+
+    .info-label {
+        font-size: 13px;
+        color: var(--chu-phu);
+        font-weight: 800
+    }
+
+    .info-value {
+        font-size: 13px;
+        color: var(--chu);
+        font-weight: 900;
+        text-align: right
+    }
+
+    .mono {
+        font-family: ui-monospace, monospace
+    }
+
+    /* ========================
+   EXPORT BUTTON
+   ======================== */
+    .btn-export {
+        width: 100%;
+        padding: 14px 20px;
+        background: var(--cam);
+        color: var(--trang);
+        border: none;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 900;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: all .2s;
+    }
+
+    .btn-export:hover {
+        background: #d73211;
+        box-shadow: 0 6px 18px rgba(238, 77, 45, .22);
+        transform: translateY(-2px);
+    }
+
+    /* ========================
+   ALERT
+   ======================== */
+    .alert {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+        padding: 20px;
+        border-radius: 14px;
+        margin-bottom: 24px;
+        border: 1px solid;
+    }
+
+    .alert-danger {
+        background: var(--nguy-hiem-nen);
+        border-color: #fecaca
+    }
+
+    .alert-icon {
+        font-size: 28px;
+        flex-shrink: 0
+    }
+
+    .alert-content h4 {
+        font-size: 16px;
+        font-weight: 1000;
+        color: var(--nguy-hiem);
+        margin-bottom: 8px
+    }
+
+    .alert-content p {
+        font-size: 14px;
+        color: var(--chu);
+        line-height: 1.6;
+        font-weight: 700
+    }
+
+    /* ========================
+   CHART CONTAINERS
+   ======================== */
+    .group-chart {
+        min-height: 280px;
+        padding: 20px 0
+    }
+
+    .trend-chart {
+        min-height: 240px;
+        padding: 20px
+    }
+
+    .trend-empty {
+        text-align: center;
+        padding: 40px 20px;
+        color: var(--chu-phu)
+    }
+
+    .trend-empty-icon {
+        font-size: 48px;
+        margin-bottom: 16px
+    }
+
+    .trend-empty h4 {
+        font-size: 16px;
+        font-weight: 900;
+        margin-bottom: 8px;
+        color: var(--chu)
+    }
+
+    .trend-empty p {
+        font-size: 14px;
+        font-weight: 700
+    }
+
+    /* ========================
+   FIXLIST
+   ======================== */
+    .fixlist {
+        display: flex;
+        flex-direction: column;
+        gap: 12px
+    }
+
+    .fixlist-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+        padding: 16px;
+        border: 1px solid var(--duong-ke);
+        border-radius: 12px;
+        background: var(--trang);
+        transition: all .2s;
+    }
+
+    .fixlist-item:hover {
+        border-color: var(--cam);
+        box-shadow: 0 6px 18px rgba(238, 77, 45, .12);
+        transform: translateY(-1px);
+    }
+
+    .fixlist-priority {
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 1000;
+        flex-shrink: 0;
+    }
+
+    .fixlist-priority.p0 {
+        background: var(--nguy-hiem-nen);
+        color: var(--nguy-hiem)
+    }
+
+    .fixlist-priority.p1 {
+        background: var(--canh-bao-nen);
+        color: var(--canh-bao)
+    }
+
+    .fixlist-priority.p2 {
+        background: var(--xanh-nen);
+        color: var(--xanh)
+    }
+
+    .fixlist-content {
+        flex: 1
+    }
+
+    .fixlist-title {
+        font-size: 14px;
+        font-weight: 900;
+        color: var(--chu);
+        margin-bottom: 6px
+    }
+
+    .fixlist-desc {
+        font-size: 13px;
+        color: var(--chu-phu);
+        line-height: 1.5;
+        font-weight: 700
+    }
+
+    .fixlist-impact {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--chu-phu);
+        font-weight: 700
+    }
+
+    /* ========================
+   TABLE TOOLBAR
+   ======================== */
+    .table-toolbar {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+    }
+
+    .search-box {
+        flex: 1;
+        min-width: 240px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        border: 1px solid var(--duong-ke);
+        border-radius: 10px;
+        background: var(--trang);
+    }
+
+    .search-icon {
+        font-size: 16px;
+        color: var(--chu-phu)
+    }
+
+    .search-box input {
+        flex: 1;
+        border: none;
+        outline: none;
+        font-size: 14px;
+        color: var(--chu);
+        font-weight: 700;
+    }
+
+    .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 10px
+    }
+
+    .filter-group label {
+        font-size: 14px;
+        font-weight: 800;
+        color: var(--chu)
+    }
+
+    .filter-group select {
+        padding: 10px 16px;
+        border: 1px solid var(--duong-ke);
+        border-radius: 10px;
+        font-size: 14px;
+        color: var(--chu);
+        background: var(--trang);
+        cursor: pointer;
+        font-weight: 800;
+    }
+
+    /* ========================
+   TABLE
+   ======================== */
+    .table-container {
+        overflow-x: auto;
+        border: 1px solid var(--duong-ke);
+        border-radius: 12px;
+        background: var(--trang);
+    }
+
+    .kpi-table {
+        width: 100%;
+        border-collapse: collapse
+    }
+
+    .kpi-table thead {
+        background: var(--nen);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+
+    .kpi-table th {
+        padding: 14px 16px;
+        text-align: left;
+        font-size: 13px;
+        font-weight: 900;
+        color: var(--chu);
+        border-bottom: 2px solid var(--duong-ke);
+    }
+
+    .kpi-table th.sortable {
+        cursor: pointer;
+        user-select: none
+    }
+
+    .kpi-table th.sortable:hover {
+        background: #f3f4f6
+    }
+
+    .sort-icon {
+        margin-left: 4px;
+        opacity: .5
+    }
+
+    .kpi-table tbody tr {
+        border-bottom: 1px solid var(--duong-ke);
+        cursor: pointer;
+        transition: all .2s;
+    }
+
+    .kpi-table tbody tr:hover {
+        background: var(--cam-nhat)
+    }
+
+    .kpi-table td {
+        padding: 14px 16px;
+        font-size: 14px;
+        color: var(--chu);
+        font-weight: 700
+    }
+
+    .kpi-id {
+        font-family: ui-monospace, monospace;
+        font-weight: 900;
+        color: var(--cam);
+    }
+
+    .kpi-name {
+        font-weight: 900
+    }
+
+    .kpi-score {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 1000;
+    }
+
+    .kpi-score.score-100 {
+        background: var(--tot-nen);
+        color: var(--tot)
+    }
+
+    .kpi-score.score-50 {
+        background: var(--canh-bao-nen);
+        color: var(--canh-bao)
+    }
+
+    .kpi-score.score-0 {
+        background: var(--nguy-hiem-nen);
+        color: var(--nguy-hiem)
+    }
+
+    .impact-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px
+    }
+
+    .impact-bar-bg {
+        flex: 1;
+        height: 8px;
+        background: var(--duong-ke);
+        border-radius: 999px;
+        overflow: hidden;
+    }
+
+    .impact-bar-fill {
+        height: 100%;
+        background: var(--cam);
+        border-radius: 999px;
+        transition: width .3s;
+    }
+
+    .impact-value {
+        font-size: 12px;
+        font-weight: 900;
+        color: var(--chu-phu);
+        min-width: 62px;
+        text-align: right;
+    }
+
+    /* Mobile KPI cards */
+    .kpi-cards {
+        display: none
+    }
+
+    /* ========================
+   INSIGHT GRID (Top cards)
+   ======================== */
+    .insight-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+
+    .insight-card {
+        background: var(--trang);
+        border: 1px solid var(--duong-ke);
+        border-radius: 14px;
+        padding: 14px 16px;
+        box-shadow: 0 2px 10px rgba(17, 24, 39, .06);
+    }
+
+    .insight-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+
+    .insight-title {
+        font-weight: 1000;
+        font-size: 14px;
+        color: var(--chu)
+    }
+
+    .insight-sub {
+        font-size: 12px;
+        color: var(--chu-phu);
+        font-weight: 700
+    }
+
+    .insight-body {
+        display: grid;
+        gap: 8px
+    }
+
+    .insight-skeleton {
+        height: 48px;
+        border-radius: 10px;
+        background: linear-gradient(90deg, #f3f4f6, #fafafa, #f3f4f6);
+        background-size: 200% 100%;
+        animation: shimmer 1.2s infinite;
+    }
+
+    @keyframes shimmer {
+        0% {
+            background-position: 200% 0
+        }
+
+        100% {
+            background-position: -200% 0
         }
     }
 
-    function getRecMeta(kpiId) {
-        try {
-            const rec = getRecommendation(kpiId);
-            if (!rec) return null;
-            return rec.meta || rec.rule || rec.threshold || rec.thresholds || rec.scoring || null;
-        } catch (_) {
-            return null;
+    /* ========================
+   KPI PILL + BADGE
+   ======================== */
+    .kpi-pill {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--duong-ke);
+        border-radius: 12px;
+        background: #fff;
+        cursor: pointer;
+        transition: all .15s;
+    }
+
+    .kpi-pill:hover {
+        border-color: var(--cam);
+        box-shadow: 0 6px 18px rgba(238, 77, 45, .12);
+        transform: translateY(-1px);
+    }
+
+    .kpi-pill-left {
+        display: flex;
+        flex-direction: column;
+        gap: 2px
+    }
+
+    .kpi-pill-id {
+        font-weight: 1000;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        color: var(--chu);
+    }
+
+    .kpi-pill-meta {
+        font-size: 12px;
+        color: var(--chu-phu);
+        font-weight: 700
+    }
+
+    .kpi-pill-right {
+        text-align: right
+    }
+
+    .kpi-pill-impact {
+        font-weight: 1000;
+        font-size: 12px;
+        color: var(--chu)
+    }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 9px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 1000;
+        border: 1px solid var(--duong-ke);
+        background: var(--trang);
+        white-space: nowrap;
+    }
+
+    .badge.p0 {
+        background: var(--nguy-hiem-nen);
+        border-color: rgba(220, 38, 38, .25);
+        color: var(--nguy-hiem)
+    }
+
+    .badge.p1 {
+        background: var(--canh-bao-nen);
+        border-color: rgba(245, 158, 11, .25);
+        color: var(--canh-bao)
+    }
+
+    .badge.p2 {
+        background: var(--xanh-nen);
+        border-color: rgba(37, 99, 235, .25);
+        color: var(--xanh)
+    }
+
+    .badge.gate {
+        font-weight: 1100
+    }
+
+    /* ========================
+   BUTTON: View Recommendation
+   ======================== */
+    .btn-rec {
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid var(--duong-ke);
+        background: var(--trang);
+        cursor: pointer;
+        font-weight: 900;
+        font-size: 12px;
+        transition: all .15s;
+        white-space: nowrap;
+    }
+
+    .btn-rec:hover {
+        border-color: var(--cam);
+        box-shadow: 0 4px 14px rgba(238, 77, 45, .12);
+        transform: translateY(-1px);
+    }
+
+    /* ========================
+   MODAL (BASE)
+   ======================== */
+    .modal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+    }
+
+    .modal.active {
+        display: block
+    }
+
+    .modal-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, .55);
+    }
+
+    .modal-panel {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: linear-gradient(180deg, #fff, #fbfbfd);
+        border-radius: 18px;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, .35);
+        max-width: 720px;
+        width: 90%;
+        max-height: 82vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid rgba(229, 231, 235, .9);
+    }
+
+    .modal-header {
+        padding: 18px 22px;
+        border-bottom: 1px solid var(--duong-ke);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        background: rgba(255, 255, 255, .92);
+        backdrop-filter: blur(10px);
+    }
+
+    .modal-header h3 {
+        font-size: 18px;
+        font-weight: 1000;
+        color: var(--chu)
+    }
+
+    .modal-close {
+        width: 34px;
+        height: 34px;
+        border: none;
+        background: var(--nen);
+        border-radius: 10px;
+        font-size: 18px;
+        cursor: pointer;
+        transition: all .2s;
+    }
+
+    .modal-close:hover {
+        background: var(--duong-ke)
+    }
+
+    .modal-body {
+        padding: 20px 22px;
+        overflow-y: auto;
+    }
+
+    /* ========================
+   RECOMMENDATION MODAL (SCAN UI)
+   Works with your JS output:
+   .rec-head .rec-kpi .rec-meta
+   .chip good/warn/bad
+   .rec-block .rec-block-title .rec-lines .rec-line .rec-k .rec-v
+   .rec-list .rec-item .rec-item-title .rec-item-sub .rec-badges
+   .rec-kpi-grid .kpi-snap .k/.v
+   ======================== */
+    .rec-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .rec-kpi {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-weight: 1100;
+        font-size: 18px;
+        color: var(--chu);
+    }
+
+    .rec-meta {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        color: var(--chu-phu);
+        font-weight: 900;
+    }
+
+    /* chips */
+    .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 7px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--duong-ke);
+        background: #fff;
+        font-size: 12px;
+        font-weight: 1000;
+        line-height: 1;
+        box-shadow: 0 8px 20px rgba(17, 24, 39, .06);
+    }
+
+    .chip::before {
+        content: "";
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--chu-phu);
+        opacity: .85;
+    }
+
+    .chip.good {
+        background: var(--tot-nen);
+        color: var(--tot);
+        border-color: rgba(22, 163, 74, .25)
+    }
+
+    .chip.good::before {
+        background: var(--tot)
+    }
+
+    .chip.warn {
+        background: var(--canh-bao-nen);
+        color: var(--canh-bao);
+        border-color: rgba(245, 158, 11, .28)
+    }
+
+    .chip.warn::before {
+        background: var(--canh-bao)
+    }
+
+    .chip.bad {
+        background: var(--nguy-hiem-nen);
+        color: var(--nguy-hiem);
+        border-color: rgba(220, 38, 38, .25)
+    }
+
+    .chip.bad::before {
+        background: var(--nguy-hiem)
+    }
+
+    /* snapshot 2x2 */
+    .rec-kpi-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 14px;
+    }
+
+    .kpi-snap {
+        border: 1px solid var(--duong-ke);
+        background: #fff;
+        border-radius: 14px;
+        padding: 12px;
+        box-shadow: 0 10px 24px rgba(17, 24, 39, .06);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .kpi-snap::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, rgba(238, 77, 45, .10), transparent 60%);
+        opacity: .9;
+        pointer-events: none;
+    }
+
+    .kpi-snap .k {
+        position: relative;
+        font-size: 11px;
+        color: var(--chu-phu);
+        font-weight: 1100;
+        letter-spacing: .08em;
+    }
+
+    .kpi-snap .v {
+        position: relative;
+        margin-top: 6px;
+        font-size: 14px;
+        font-weight: 1000;
+        color: var(--chu);
+        line-height: 1.35;
+    }
+
+    /* blocks */
+    .rec-block {
+        margin-top: 14px;
+        border: 1px solid var(--duong-ke);
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 12px 28px rgba(17, 24, 39, .06);
+        overflow: hidden;
+    }
+
+    .rec-block-title {
+        padding: 12px 14px;
+        font-weight: 1100;
+        letter-spacing: .06em;
+        font-size: 12px;
+        color: var(--chu);
+        background: linear-gradient(90deg, rgba(238, 77, 45, .12), rgba(238, 77, 45, .02));
+        border-bottom: 1px solid var(--duong-ke);
+    }
+
+    .rec-lines {
+        padding: 12px 14px
+    }
+
+    .rec-line {
+        display: flex;
+        gap: 10px;
+        padding: 8px 0;
+        border-bottom: 1px dashed rgba(17, 24, 39, .10);
+    }
+
+    .rec-line:last-child {
+        border-bottom: 0
+    }
+
+    .rec-k {
+        min-width: 92px;
+        color: var(--chu-phu);
+        font-weight: 1100;
+        font-size: 12px;
+    }
+
+    .rec-v {
+        color: var(--chu);
+        font-weight: 900;
+        font-size: 13px
+    }
+
+    /* list items */
+    .rec-list {
+        padding: 12px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px
+    }
+
+    .rec-item {
+        border: 1px solid rgba(17, 24, 39, .10);
+        border-radius: 14px;
+        padding: 12px;
+        background: linear-gradient(180deg, #fff, #fcfcfd);
+        transition: all .15s ease;
+    }
+
+    .rec-item:hover {
+        border-color: rgba(238, 77, 45, .35);
+        box-shadow: 0 10px 24px rgba(238, 77, 45, .10);
+        transform: translateY(-1px);
+    }
+
+    .rec-item-title {
+        font-weight: 1100;
+        font-size: 14px;
+        color: var(--chu)
+    }
+
+    .rec-item-sub {
+        margin-top: 6px;
+        font-size: 13px;
+        color: var(--chu-phu);
+        font-weight: 800;
+        line-height: 1.45
+    }
+
+    .rec-badges {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap
+    }
+
+    /* bottom CTA (if you render it) */
+    .rec-cta {
+        position: sticky;
+        bottom: 0;
+        z-index: 10;
+        background: rgba(255, 255, 255, .92);
+        backdrop-filter: blur(10px);
+        border-top: 1px solid var(--duong-ke);
+        padding: 12px 14px;
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    .btn-mini {
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--duong-ke);
+        background: #fff;
+        font-weight: 1000;
+        font-size: 13px;
+        cursor: pointer;
+        box-shadow: 0 10px 24px rgba(17, 24, 39, .06);
+        transition: all .15s;
+    }
+
+    .btn-mini:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 14px 30px rgba(17, 24, 39, .10)
+    }
+
+    .btn-mini.primary {
+        background: var(--cam);
+        border-color: var(--cam);
+        color: #fff
+    }
+
+    /* Old fallback recommendation boxes (if still used somewhere) */
+    .recommendation-box {
+        padding: 16px;
+        background: var(--xanh-nen);
+        border-left: 4px solid var(--xanh);
+        border-radius: 10px;
+        margin-bottom: 16px;
+    }
+
+    .recommendation-box h5 {
+        font-size: 14px;
+        font-weight: 1000;
+        color: var(--xanh);
+        margin-bottom: 10px;
+    }
+
+    .recommendation-box ul {
+        list-style: none;
+        padding: 0;
+        margin: 0
+    }
+
+    .recommendation-box li {
+        font-size: 13px;
+        color: var(--chu);
+        line-height: 1.6;
+        padding-left: 20px;
+        position: relative;
+        margin-bottom: 8px;
+        font-weight: 700;
+    }
+
+    .recommendation-box li::before {
+        content: "•";
+        position: absolute;
+        left: 8px;
+        color: var(--xanh);
+        font-weight: 1000;
+    }
+
+    /* ========================
+   PRIORITY MAP
+   ======================== */
+    .priority-map-wrap {
+        display: grid;
+        grid-template-columns: 1fr 220px;
+        gap: 16px;
+        align-items: start;
+    }
+
+    .priority-map {
+        border: 1px solid var(--duong-ke);
+        background: #fff;
+        border-radius: 14px;
+        overflow: hidden;
+        min-height: 260px;
+    }
+
+    .priority-legend {
+        border: 1px solid var(--duong-ke);
+        background: #fff;
+        border-radius: 14px;
+        padding: 12px;
+        display: grid;
+        gap: 10px;
+        color: var(--chu);
+    }
+
+    .legend-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 900
+    }
+
+    .legend-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        display: inline-block
+    }
+
+    .legend-dot.p0 {
+        background: var(--nguy-hiem)
+    }
+
+    .legend-dot.p1 {
+        background: var(--canh-bao)
+    }
+
+    .legend-dot.p2 {
+        background: var(--xanh)
+    }
+
+    .legend-note {
+        font-size: 12px;
+        color: var(--chu-phu);
+        font-weight: 700
+    }
+
+    /* ========================
+   GROUP CHART (gc-*)
+   Fix “đè chữ trục Y” bằng gutter trái
+   ======================== */
+    .gc-wrap {
+        display: grid;
+        gap: 12px
+    }
+
+    .gc-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+    }
+
+    .gc-title {
+        display: flex;
+        align-items: center;
+        gap: 12px
+    }
+
+    .gc-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--duong-ke);
+        background: #fff;
+    }
+
+    .gc-h {
+        font-size: 14px;
+        font-weight: 1100;
+        color: var(--chu)
+    }
+
+    .gc-sub {
+        font-size: 12px;
+        font-weight: 900;
+        color: var(--chu-phu)
+    }
+
+    .gc-chips {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center
+    }
+
+    .gc-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--duong-ke);
+        background: #fff;
+        font-size: 12px;
+        font-weight: 900;
+        color: var(--chu);
+        box-shadow: 0 2px 10px rgba(17, 24, 39, .04);
+    }
+
+    .gc-chip .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--cam)
+    }
+
+    .gc-chip .muted {
+        opacity: .65;
+        font-weight: 900
+    }
+
+    .gc-chip.weak {
+        background: var(--nguy-hiem-nen);
+        border-color: rgba(220, 38, 38, .25)
+    }
+
+    .gc-chip.weak .dot {
+        background: var(--nguy-hiem)
+    }
+
+    .gc-area {
+        position: relative;
+        border: 1px solid var(--duong-ke);
+        border-radius: 14px;
+        background: linear-gradient(180deg, #ffffff, #fbfbfd);
+        box-shadow: 0 6px 22px rgba(17, 24, 39, .06);
+        padding: 14px 14px 10px;
+        min-height: 260px;
+        overflow: hidden;
+
+        /* gutter trái cho label Y */
+        --y-gutter: 58px;
+    }
+
+    .gc-grid {
+        position: absolute;
+        inset: 14px 14px 58px 14px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        pointer-events: none;
+        z-index: 0;
+
+        left: calc(14px + var(--y-gutter));
+    }
+
+    .gc-gridline {
+        position: relative;
+        border-top: 1px solid rgba(229, 231, 235, .9)
+    }
+
+    .gc-gridline::before {
+        content: attr(data-tick) "%";
+        position: absolute;
+        left: calc(-1 * var(--y-gutter));
+        top: -10px;
+        width: calc(var(--y-gutter) - 10px);
+        text-align: right;
+        padding-right: 6px;
+        font-size: 12px;
+        font-weight: 1100;
+        color: rgba(107, 114, 128, .95);
+        background: rgba(255, 255, 255, .78);
+        border-radius: 8px;
+    }
+
+    .gc-bars {
+        position: relative;
+        z-index: 2;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 18px;
+        align-items: end;
+        padding: 10px 10px 0;
+        height: 220px;
+
+        padding-left: calc(10px + var(--y-gutter));
+    }
+
+    .gc-col {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        align-items: center
+    }
+
+    .gc-track {
+        width: 100%;
+        height: 180px;
+        background: rgba(229, 231, 235, .75);
+        border-radius: 16px;
+        overflow: hidden;
+        position: relative;
+        padding: 6px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
+    }
+
+    .gc-fill {
+        position: absolute;
+        left: 6px;
+        right: 6px;
+        bottom: 6px;
+        height: var(--h);
+        max-height: calc(100% - 12px);
+        border-radius: 14px;
+        background: linear-gradient(180deg, rgba(238, 77, 45, .98), rgba(238, 77, 45, .22));
+        border: 1px solid rgba(17, 24, 39, .06);
+        transform-origin: bottom;
+        animation: gcGrow .65s ease forwards;
+        cursor: pointer;
+        transition: transform .15s ease, filter .15s ease;
+        z-index: 3;
+    }
+
+    .gc-fill:hover {
+        transform: translateY(-2px);
+        filter: drop-shadow(0 10px 14px rgba(238, 77, 45, .18));
+    }
+
+    .gc-fill.weak {
+        background: linear-gradient(180deg, rgba(220, 38, 38, .98), rgba(220, 38, 38, .18));
+    }
+
+    .gc-fill.weak:hover {
+        filter: drop-shadow(0 10px 14px rgba(220, 38, 38, .22))
+    }
+
+    @keyframes gcGrow {
+        from {
+            transform: scaleY(.25);
+            opacity: .6
+        }
+
+        to {
+            transform: scaleY(1);
+            opacity: 1
         }
     }
 
-    function enrichKpisWithRecMeta(kpis) {
-        if (!Array.isArray(kpis)) return kpis;
-
-        return kpis.map((k) => {
-            const id = normalizeKpiId(k);
-            const meta = getRecMeta(id);
-            if (!meta) return k;
-
-            const next = { ...k };
-
-            if (!next.method && meta.method) next.method = String(meta.method).toUpperCase();
-            if (!next.direction && meta.direction) next.direction = String(meta.direction).toUpperCase();
-
-            if (next.t1 === undefined || next.t1 === null) {
-                if (meta.t1 !== undefined) next.t1 = meta.t1;
-                else if (meta.target !== undefined) next.t1 = meta.target;
-            }
-            if (next.t2 === undefined || next.t2 === null) {
-                if (meta.t2 !== undefined) next.t2 = meta.t2;
-                else if (meta.min !== undefined) next.t2 = meta.min;
-            }
-
-            return next;
-        });
+    .gc-value {
+        position: absolute;
+        top: -30px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 16px;
+        font-weight: 1100;
+        color: var(--cam);
+        white-space: nowrap;
+        z-index: 6;
+        pointer-events: none;
     }
 
-    // ========================
-    // Gate / Fixlist logic
-    // ========================
-    function calcImpactGap(item) {
-        const score = Number(item?.score ?? 0);
-        const w = Number(item?.weight_final ?? item?.weight ?? 0);
-        return (100 - score) * (isFinite(w) ? w : 0);
+    .gc-fill.weak .gc-value {
+        color: var(--nguy-hiem)
     }
 
-    function estimateEffort(kpiId, group, gateType) {
-        if (gateType && gateType !== "NONE") return 2;
-        const id = (kpiId || "").toUpperCase();
-        const g = (group || "").toLowerCase();
-
-        if (id.startsWith("OP-") || id.startsWith("CS-") || id.startsWith("PEN-") || id.startsWith("CO-")) return 2;
-        if (id.startsWith("BR-") || id.startsWith("CAT-")) return 3;
-        if (id.startsWith("SC-") || g.includes("quy mô")) return 3;
-        return 3;
+    .gc-x {
+        text-align: center
     }
 
-    function detectGateType(kpiId, kpiItem) {
-        const id = normalizeKpiId(kpiId);
-        const rec = getRecommendation(id);
-        const recGate = String(rec?.gate || "").toUpperCase();
-
-        if (recGate === "HARD_KO") return "HARD_KO";
-        if (recGate === "SOFT_KO") return "SOFT_KO";
-        if (id.startsWith("KO-")) return "HARD_KO";
-        if (SOFT_KO_IDS.has(id)) return "SOFT_KO";
-
-        const g = String(kpiItem?.gate || kpiItem?.gateType || "").toUpperCase();
-        if (g === "HARD_KO") return "HARD_KO";
-        if (g === "SOFT_KO") return "SOFT_KO";
-        return "NONE";
+    .gc-x-name {
+        font-size: 13px;
+        font-weight: 1100;
+        color: var(--chu)
     }
 
-    function priorityOf(kpiId, kpiItem, topImpactThreshold) {
-        const gateType = detectGateType(kpiId, kpiItem);
-        if (gateType !== "NONE") return "P0";
-
-        const impactGap = calcImpactGap(kpiItem);
-        if (!(impactGap > 0)) return "P3";
-        if (impactGap >= topImpactThreshold) return "P1";
-        return "P2";
+    .gc-x-sub {
+        font-size: 12px;
+        font-weight: 1000;
+        color: var(--chu-phu)
     }
 
-    function parseDeadlineFromRecOrItem(kpiId, item) {
-        const rec = getRecommendation(kpiId);
-        const d = rec?.canh_bao?.deadline || item?.deadline || item?.meta?.deadline;
-        if (!d) return null;
-
-        const s = String(d).trim();
-        const iso = Date.parse(s);
-        if (!Number.isNaN(iso)) return new Date(iso);
-
-        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
-        return null;
+    .gc-legend {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 0 6px;
+        color: var(--chu-phu);
+        font-weight: 900;
+        font-size: 12px;
     }
 
-    function domainRank(kpiId, item) {
-        const id = normalizeKpiId(kpiId);
-        const gateType = detectGateType(id, item);
-
-        if (gateType === "HARD_KO" || id.startsWith("KO-")) return 0;
-        if (id.startsWith("OP-") || id.startsWith("PEN-") || id.startsWith("CO-")) return 1;
-        if (id.startsWith("CS-")) return 2;
-        return 3;
+    .gc-tooltip {
+        position: absolute;
+        pointer-events: none;
+        background: rgba(17, 24, 39, .92);
+        color: #fff;
+        padding: 10px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 1000;
+        line-height: 1.35;
+        box-shadow: 0 14px 30px rgba(0, 0, 0, .25);
+        transform: translate(-50%, -110%);
+        opacity: 0;
+        transition: opacity .12s ease, transform .12s ease;
+        white-space: nowrap;
+        z-index: 50;
     }
 
-    function buildFixlist(breakdownItems) {
-        const items = (breakdownItems || []).map((k) => {
-            const kpiId = normalizeKpiId(k);
-            const group = normalizeGroupName(k.group) || groupOf(kpiId);
-            const gateType = detectGateType(kpiId, k);
-            const impactGap = calcImpactGap(k);
-            const effort = Number(k.effort ?? k.meta?.effort ?? estimateEffort(kpiId, group, gateType));
-
-            return {
-                ...k,
-                kpiId,
-                group,
-                gateType,
-                impactGap,
-                effort,
-            };
-        });
-
-        const nonP0 = items.filter((it) => it.gateType === "NONE" && it.impactGap > 0);
-        const impacts = nonP0.map((it) => it.impactGap).sort((a, b) => b - a);
-        const idx = Math.max(0, Math.floor(impacts.length * 0.2) - 1);
-        const top20 = impacts.length ? impacts[idx] : Infinity;
-
-        for (const it of items) {
-            it.priority = priorityOf(it.kpiId, it, top20);
-            it.deadline = parseDeadlineFromRecOrItem(it.kpiId, it);
-        }
-
-        items.sort((a, b) => {
-            const aRank = domainRank(a.kpiId, a);
-            const bRank = domainRank(b.kpiId, b);
-            if (aRank !== bRank) return aRank - bRank;
-
-            const aP = { P0: 0, P1: 1, P2: 2, P3: 3 }[a.priority] ?? 3;
-            const bP = { P0: 0, P1: 1, P2: 2, P3: 3 }[b.priority] ?? 3;
-            if (aP !== bP) return aP - bP;
-
-            if (Math.abs(b.impactGap - a.impactGap) > 0.01) return b.impactGap - a.impactGap;
-            if (a.effort !== b.effort) return a.effort - b.effort;
-
-            if (a.deadline && b.deadline) return a.deadline - b.deadline;
-            if (a.deadline) return -1;
-            if (b.deadline) return 1;
-            return 0;
-        });
-
-        // Compatibility return type:
-        // - Many render functions expect an Array and call .filter/.slice directly.
-        // - Some older code paths expect an object { items, top20Threshold }.
-        // To prevent schema drift, we return the Array and attach aliases.
-        items.top20Threshold = top20;
-        items.items = items;
-        return items;
+    .gc-tooltip.show {
+        opacity: 1;
+        transform: translate(-50%, -125%)
     }
 
-    // ========================
-    // Load + Adapt
-    // ========================
-    function loadData(opts = {}) {
-        const resultKey = window.MRSM_CONFIG?.ASSESSMENT_RESULT_KEY || "assessment_result";
-        const preferredAssessmentId = String(opts.preferredAssessmentId || "").trim();
-        const isLocalMode = !!opts.isLocalMode;
-
-        // ================================
-        // GitHub Pages local-first hydrate
-        // Priority:
-        // 1) assessment_record__{aid}
-        // 2) assessment_record_local (nếu match aid hoặc local mode)
-        // 3) scan localStorage: assessment_record__* (latest)
-        // 4) assessment_result (latest facts)
-        // 5) legacy assessmentData
-        // ================================
-        const candidates = [];
-        if (preferredAssessmentId) {
-            // record schema (preferred)
-            candidates.push(`assessment_record__${preferredAssessmentId}`);
-            // raw result facts schema (optional)
-            candidates.push(`assessment_result__${preferredAssessmentId}`);
-        }
-        // latest caches
-        candidates.push("assessment_record_local");
-        candidates.push("assessment_record_latest");
-        // legacy/global keys
-        candidates.push(resultKey);
-        candidates.push("assessmentData");
-
-        const tryParse = (raw) => {
-            try {
-                return raw ? JSON.parse(raw) : null;
-            } catch {
-                return null;
-            }
-        };
-
-        // 1/2/4/5 direct candidates
-        let parsed = null;
-        for (const key of candidates) {
-            const raw = localStorage.getItem(key);
-            const obj = tryParse(raw);
-            if (!obj) continue;
-
-            // If we have a preferred aid, ensure match when possible
-            const objAid = String(obj.assessment_id || obj.assessmentId || obj.id || "");
-            if (preferredAssessmentId) {
-                if (key === "assessment_record_local") {
-                    // local mode may not store exact id on older builds, allow
-                    if (isLocalMode || objAid === preferredAssessmentId) {
-                        parsed = obj;
-                        break;
-                    }
-                } else if (objAid === preferredAssessmentId || key === resultKey || String(key).startsWith("assessment_result__")) {
-                    // assessment_result is global (latest) so accept as fallback
-                    // assessment_result__{aid} may not embed assessment_id, still accept
-                    parsed = obj;
-                    break;
-                }
-            } else {
-                // no preferred id => accept first valid
-                parsed = obj;
-                break;
-            }
-        }
-
-        // 3) scan latest assessment_record__*
-        if (!parsed) {
-            let best = null;
-            for (let i = 0; i < localStorage.length; i++) {
-                const k = localStorage.key(i);
-                if (!k || !k.startsWith("assessment_record__")) continue;
-                const obj = tryParse(localStorage.getItem(k));
-                if (!obj) continue;
-
-                const ts = obj.assessed_at || obj.timestamp || obj.computedAt || obj.evaluated_at || obj.evaluatedAt;
-                const t = ts ? new Date(ts).getTime() : 0;
-                const bestT = best?.__t || 0;
-                if (!best || t > bestT) best = { __t: t, obj };
-            }
-            if (best && best.obj) parsed = best.obj;
-        }
-
-        // No result yet => show empty dashboard state (but still keep gate context)
-        if (!parsed) {
-            showEmptyState();
-            return;
-        }
-
-        // Fail-closed: if in local mode without hard evidence anywhere => KO_GATE
-        if (isLocalMode) {
-            const hardRaw = sessionStorage.getItem(window.MRSM_CONFIG?.HARD_GATE_KEY || "validatedHardKO");
-            const hasHard = !!hardRaw;
-
-            const maybeGate = parsed?.gate || parsed?.Gate || parsed?.soft_ko_gate || {};
-            const hasHardInPayload = !!(maybeGate?.hard?.verified_at || maybeGate?.hard?.verifiedAt || parsed?.hard_verified_at);
-
-            if (!hasHard && !hasHardInPayload) {
-                window.location.href = "KO_GATE.html";
-                return;
-            }
-        }
-
-        // Sticky aid for cross-page navigation
-        try {
-            const aid = String(parsed.assessment_id || parsed.assessmentId || preferredAssessmentId || "");
-            if (aid) {
-                sessionStorage.setItem("current_assessment_id", aid);
-                localStorage.setItem("current_assessment_id", aid);
-            }
-        } catch (_) { /* ignore */ }
-
-        assessmentData = adaptLocalData(parsed);
-        renderDashboard();
+    .gc-tooltip .muted {
+        opacity: .85;
+        font-weight: 900
     }
 
-    function normalizeGateFromSnapshot(local) {
-        // Prefer snapshot inside result payload; fallback to current GateGuard storages
-        const snap = local?.gate || local?.Gate || local?.soft_ko_gate || {};
-
-        // If payload doesn't include gate info, build from live storages (best-effort)
-        const soft = window.MRSM_CONFIG?.getSoftGate?.() || window.GateGuard?.getSoftGate?.() || null;
-        const hard = window.MRSM_CONFIG?.getHardGate?.() || window.GateGuard?.getHardGate?.() || null;
-
-        const gate = (snap && typeof snap === "object") ? { ...snap } : {};
-
-        // Normalize gate.status
-        let gateStatus = gate.status || gate.gate_status || gate.Gate_Status || "";
-
-        // If snapshot lacks status, infer from soft gate status
-        if (!gateStatus && soft?.gate_status) gateStatus = soft.gate_status;
-
-        if (gateStatus) {
-            const st = String(gateStatus).toUpperCase();
-            if (st === "HARD_FAIL" || st === "HARD_KO" || st === "FAIL") gate.status = "G0";
-            else if (st === "SOFT_PENDING" || st === "SOFT_KO" || st === "PENDING" || st === "G1") gate.status = "G1";
-            else if (st === "SOFT_OVERDUE" || st === "OVERDUE" || st === "G2") gate.status = "G2";
-            else if (st === "PASS") gate.status = "PASS";
-            else if (st === "G0" || st === "G1" || st === "G2") gate.status = st;
-            else gate.status = "UNKNOWN";
-        } else {
-            gate.status = "UNKNOWN";
+    /* ========================
+   RESPONSIVE
+   ======================== */
+    @media (max-width:1024px) {
+        .dashboard-container {
+            grid-template-columns: 1fr
         }
 
-        // Attach hard/soft snapshots for detail rendering if missing
-        if (!gate.hard && hard) gate.hard = hard;
-        if (!gate.soft && soft) gate.soft = soft;
-
-        // Attach pending/failed list best-effort (optional)
-        // If your gate schema already has failed_kpis/pending_kpis, keep it.
-        if (gate.status === "G1" || gate.status === "G2") {
-            if (!gate.soft) gate.soft = soft || gate.soft || {};
-            if (gate.soft && !Array.isArray(gate.soft.pending_kpis) && gate.soft.items && typeof gate.soft.items === "object") {
-                const pending = Object.entries(gate.soft.items)
-                    .filter(([, v]) => v && v.passed === false)
-                    .map(([k]) => normalizeKpiId(k));
-                gate.soft.pending_kpis = pending;
-            }
-            if (gate.soft && !gate.soft.deadline_at && gate.soft.deadline_at !== 0) {
-                if (gate.soft.deadline_at === undefined && soft?.soft?.deadline_at) gate.soft.deadline_at = soft.soft.deadline_at;
-                if (gate.soft.deadline_at === undefined && soft?.deadline_at) gate.soft.deadline_at = soft.deadline_at;
-            }
+        .sidebar {
+            position: relative;
+            top: 0
         }
 
-        return gate;
-    }
-
-    function adaptLocalData(local) {
-        const asmID = local.assessment_id || local.assessmentId || local.id || ("ASM-" + Date.now());
-        const category = local.category || local.loai || "Không rõ";
-        const assessedAt = local.assessed_at || local.timestamp || local.computedAt || new Date().toISOString();
-
-        const gateInfo = normalizeGateFromSnapshot(local);
-
-        // KPI items
-        let kpis = [];
-        const bd = local.breakdown || local.kpis || local.results || local.mrsm?.breakdown || [];
-
-        for (const k of bd) {
-            const value =
-                (k.value !== undefined && k.value !== null) ? k.value
-                    : (k.raw_value !== undefined && k.raw_value !== null) ? k.raw_value
-                        : (k.actual !== undefined && k.actual !== null) ? k.actual
-                            : (k.val !== undefined && k.val !== null) ? k.val
-                                : null;
-
-            const pid = normalizeKpiId(k);
-            const g = normalizeGroupName(k.group) || groupOf(pid);
-
-            kpis.push({
-                rule_id: pid,
-                kpiId: pid,
-                group: g,
-                title: k.title || k.name || k.ten_kpi || k.kpi_name || pid,
-                score: Number(k.score ?? 0),
-                weight: Number(k.weight ?? 0),
-                weight_final: Number(k.weight_final ?? k.weightFinal ?? k.weight ?? 0),
-                method: k.method || k.phuong_phap || null,
-                direction: k.direction || k.huong || null,
-                t1: (k.t1 ?? k.target ?? null),
-                t2: (k.t2 ?? k.min ?? null),
-                value,
-                raw_value: value,
-                gate: k.gate || k.gateType || null,
-                meta: k.meta || {},
-            });
+        .header-container {
+            flex-direction: column;
+            align-items: flex-start
         }
 
-        kpis = enrichKpisWithRecMeta(kpis);
-
-        const totalWeight = kpis.reduce((sum, k) => sum + (k.weight_final || 0), 0);
-        const weightedSum = kpis.reduce((sum, k) => sum + (k.score || 0) * (k.weight_final || 0), 0);
-        const overallScore = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;
-
-        return {
-            assessment_id: asmID,
-            category,
-            assessed_at: assessedAt,
-            overallScore,
-            gate: gateInfo,
-            kpis,
-            groups: calcGroups(kpis),
-        };
-    }
-
-    function calcGroups(kpis) {
-        const map = {};
-        for (const k of (kpis || [])) {
-            const g = normalizeGroupName(k.group) || "Khác";
-            if (!map[g]) map[g] = { name: g, totalWeight: 0, weightedSum: 0, count: 0 };
-            map[g].totalWeight += (k.weight_final || 0);
-            map[g].weightedSum += (Number(k.score || 0) * (k.weight_final || 0));
-            map[g].count += 1;
+        .header-right {
+            width: 100%
         }
 
-        const groups = Object.keys(map).map((key) => {
-            const info = map[key];
-            const avgScore = info.totalWeight > 0 ? Math.round(info.weightedSum / info.totalWeight) : 0;
-            return { name: info.name, avgScore, count: info.count };
-        });
-
-        groups.sort((a, b) => b.avgScore - a.avgScore);
-        return groups;
-    }
-
-    // ========================
-    // Render
-    // ========================
-    function renderDashboard() {
-        if (!assessmentData) {
-            showEmptyState();
-            return;
+        .btn-header {
+            flex: 1
         }
 
-        // Build KPI list normalized
-        allKpis = (assessmentData.kpis || []).map((k) => {
-            const pid = normalizeKpiId(k);
-            const g = normalizeGroupName(k.group) || groupOf(pid);
-            return {
-                ...k,
-                rule_id: pid,
-                kpiId: pid,
-                group: g,
-                score: Number(k.score ?? 0),
-                weight_final: Number(k.weight_final ?? k.weight ?? 0),
-            };
-        });
-
-        allKpis = enrichKpisWithRecMeta(allKpis);
-        assessmentData.groups = calcGroups(allKpis);
-
-        // Storytelling: 3-second comprehension
-        renderGateStatus();
-        renderOverallScore();
-        renderInsights();
-        renderGroupChart();
-        renderParetoChart();
-        renderDistChart();
-        renderPriorityMap();
-        renderTrend();
-
-        // Action: fixlist + table
-        renderFixlist();
-        renderKpiTable();
-
-        // Bind controls once
-        bindDashboardControls();
-
-        // Done loading
-        setLoading(false);
-    }
-
-    function renderGateStatus() {
-        const container = $("gateStatus");
-        if (!container) return;
-
-        const badge = container.querySelector(".gate-badge");
-        const desc = container.querySelector(".gate-description");
-
-        const st = (assessmentData?.gate?.status || "UNKNOWN").toUpperCase();
-        let cls = "unknown", icon = "❔", title = "Gate: UNKNOWN", detail = "Không đủ dữ liệu Gate. Vui lòng kiểm tra lại luồng KO.";
-
-        if (st === "PASS") {
-            cls = "pass"; icon = "✅"; title = "Gate: PASS";
-            detail = "Đã qua Hard KO và Soft KO. Điểm MRSM được tính bình thường.";
-        } else if (st === "G0") {
-            cls = "g0"; icon = "⛔"; title = "Gate: G0 (Hard KO Failed)";
-            detail = "Thiếu/không đạt điều kiện bắt buộc (Hard KO). MRSM_Final = 0.";
-        } else if (st === "G1") {
-            cls = "g1"; icon = "⏳"; title = "Gate: G1 (Soft KO Pending)";
-            detail = "Đang trong 7 ngày khắc phục Soft KO. Chưa đủ điều kiện tính điểm.";
-        } else if (st === "G2") {
-            cls = "g2"; icon = "⚠️"; title = "Gate: G2 (Soft KO Overdue)";
-            detail = "Quá hạn khắc phục Soft KO. Chưa đủ điều kiện tính điểm.";
+        .insight-grid {
+            grid-template-columns: 1fr
         }
 
-        if (badge) {
-            badge.textContent = `${icon} ${title}`;
-            badge.classList.remove("pass", "g0", "g1", "g2", "unknown");
-            badge.classList.add(cls);
-        }
-        if (desc) desc.textContent = detail;
-
-        // Warning strip
-        const warn = $("gateWarning");
-        const warnText = $("gateWarningText");
-        if (warn && warnText) {
-            if (st !== "PASS") {
-                warn.style.display = "flex";
-                warnText.textContent = "Gate chưa PASS → hệ thống sẽ fail-closed: MRSM_Final = 0 và Fixlist ưu tiên P0 (nếu có).";
-            } else {
-                warn.style.display = "none";
-            }
+        .priority-map-wrap {
+            grid-template-columns: 1fr
         }
     }
 
-    function renderOverallScore() {
-        // Sidebar score components in DASHBOARD.html
-        const scoreEl = $("totalScoreDisplay");
-        const arc = $("scoreArc");
-        const tierBadge = $("tierBadge");
-        const tierNote = $("tierNote");
-
-        // New storytelling widgets
-        const needle = $("gaugeNeedle");
-        const progress = $("gaugeProgress");
-        const tlBadge = $("trafficLightBadge");
-        const tlText = $("trafficLightText");
-
-        const gateStatus = (assessmentData?.gate?.status || "UNKNOWN").toUpperCase();
-        const rawScore = Number(assessmentData?.overallScore ?? 0);
-        const score = (gateStatus === "PASS") ? Math.max(0, Math.min(100, Math.round(rawScore))) : 0;
-
-        // --- Donut ---
-        if (scoreEl) scoreEl.textContent = String(score);
-
-        if (arc) {
-            const CIRC = 534; // pre-set in HTML
-            const pct = score / 100;
-            const offset = Math.round(CIRC * (1 - pct));
-            arc.setAttribute("stroke-dashoffset", String(offset));
-
-            // Color by traffic-light
-            let stroke = "var(--nguy-hiem)";
-            if (score >= 70) stroke = "var(--xanh)";
-            else if (score >= 50) stroke = "var(--cam)";
-            arc.setAttribute("stroke", stroke);
+    @media (max-width:900px) {
+        .gc-bars {
+            grid-template-columns: 1fr;
+            height: auto;
+            padding-left: calc(10px + 42px)
         }
 
-        // --- Tier badge + note ---
-        const t = tiering(score);
-        if (tierBadge) {
-            tierBadge.textContent = `${t.icon} ${t.label}`;
-            tierBadge.classList.remove("tier-not-ready", "tier-partial", "tier-near", "tier-ready");
-            tierBadge.classList.add(t.cls);
-        }
-        if (tierNote) tierNote.textContent = t.note;
-
-        // --- Gauge (semi-circle) ---
-        // Map score 0..100 => -90..90 degrees
-        const angle = -90 + (score * 180 / 100);
-        if (needle) needle.style.transform = `rotate(${angle}deg)`;
-
-        if (progress) {
-            // Path length ~ 314 (depends on SVG). We'll compute dynamically if possible.
-            try {
-                const len = progress.getTotalLength();
-                progress.style.strokeDasharray = `${len}`;
-                progress.style.strokeDashoffset = `${Math.max(0, Math.min(len, len * (1 - score / 100)))}`;
-            } catch (_) {
-                // best-effort fallback
-            }
-
-            let stroke = "var(--nguy-hiem)";
-            if (score >= 70) stroke = "var(--xanh)";
-            else if (score >= 50) stroke = "var(--cam)";
-            progress.style.stroke = stroke;
+        .gc-area {
+            --y-gutter: 42px;
         }
 
-        // --- Traffic light ---
-        const tl = trafficLight(score);
-        if (tlBadge) {
-            tlBadge.textContent = tl.dot;
-            tlBadge.classList.remove("red", "orange", "green");
-            tlBadge.classList.add(tl.cls);
+        .gc-track {
+            height: 140px
         }
-        if (tlText) tlText.textContent = tl.text;
-
-        // Optional: summary header fields
-        const shopName = $("shopName");
-        const shopId = $("shopId");
-        const computedAt = $("computedAt");
-        const assessmentId = $("assessmentId");
-        if (shopName) shopName.textContent = assessmentData?.shop?.name || assessmentData?.shop?.shop_name || "—";
-        if (shopId) shopId.textContent = assessmentData?.shop?.id || assessmentData?.shop?.shop_id || "—";
-        if (computedAt) computedAt.textContent = formatDateTime(assessmentData?.computedAt || assessmentData?.evaluatedAt);
-        if (assessmentId) assessmentId.textContent = assessmentData?.assessmentId || "—";
     }
 
-    function renderGroups() {
-        const el = $("groups-section");
-        if (!el) return;
-
-        const groups = assessmentData.groups || [];
-        if (groups.length === 0) {
-            el.innerHTML = '<p style="color: var(--chu-phu);">Không có nhóm KPI.</p>';
-            return;
+    @media (max-width:640px) {
+        .dashboard-container {
+            padding: 16px
         }
 
-        let html = '<div class="groups-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">';
-        for (const g of groups) {
-            let color = "var(--nguy-hiem)";
-            if (g.avgScore >= 80) color = "var(--xanh)";
-            else if (g.avgScore >= 60) color = "var(--canh-bao)";
+        .header-container {
+            padding: 16px 20px
+        }
 
-            html += `
-        <div class="group-card" style="padding: 16px; background: var(--trang); border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.08);">
-          <div style="font-size: 14px; font-weight: 600; color: var(--chu); margin-bottom: 8px;">${escapeHtml(g.name)}</div>
-          <div style="font-size: 32px; font-weight: 700; color: ${color};">${g.avgScore}</div>
-          <div style="font-size: 13px; color: var(--chu-phu); margin-top: 4px;">${g.count} KPI</div>
+        .progress-bar-container {
+            padding: 12px 20px
+        }
+
+        .progress-step span {
+            display: none
+        }
+
+        .table-container {
+            display: none
+        }
+
+        .kpi-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .kpi-card {
+            padding: 16px;
+            border: 1px solid var(--duong-ke);
+            border-radius: 12px;
+            background: var(--trang);
+        }
+
+        .kpi-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .kpi-card-body {
+            font-size: 13px;
+            color: var(--chu-phu);
+            font-weight: 700
+        }
+
+        .modal-panel {
+            width: 96%;
+            max-height: 90vh
+        }
+
+        .rec-kpi-grid {
+            grid-template-columns: 1fr
+        }
+    }
+
+    /* =========================
+           Storytelling UX add-ons
+        ========================== */
+    body.is-loading {
+        overflow: hidden;
+    }
+
+    .loading-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(15, 19, 35, 0.32);
+        backdrop-filter: blur(6px);
+        display: none;
+    }
+
+    body.is-loading .loading-overlay {
+        display: block;
+    }
+
+    .loading-card {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: min(520px, 92vw);
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid rgba(88, 106, 255, 0.18);
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.18);
+    }
+
+    .loading-title {
+        height: 18px;
+        width: 62%;
+        border-radius: 10px;
+        margin-bottom: 10px;
+    }
+
+    .loading-sub {
+        height: 12px;
+        width: 78%;
+        border-radius: 10px;
+        margin-bottom: 16px;
+    }
+
+    .loading-row {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+
+    .loading-box {
+        height: 56px;
+        border-radius: 14px;
+    }
+
+    .loading-wide {
+        height: 14px;
+        border-radius: 10px;
+        margin-top: 10px;
+    }
+
+    .score-story {
+        margin-top: 12px;
+    }
+
+    .gauge-wrap {
+        background: rgba(255, 255, 255, 0.72);
+        border: 1px solid rgba(88, 106, 255, 0.14);
+        border-radius: 16px;
+        padding: 10px 12px;
+    }
+
+    .gauge-svg {
+        width: 100%;
+        height: auto;
+        display: block;
+    }
+
+    .gauge-track {
+        fill: none;
+        stroke: rgba(18, 24, 56, 0.10);
+        stroke-width: 12;
+        stroke-linecap: round;
+    }
+
+    .gauge-seg {
+        fill: none;
+        stroke-width: 12;
+        stroke-linecap: round;
+        opacity: 0.95;
+    }
+
+    .gauge-seg.seg-red {
+        stroke: var(--nguy-hiem);
+    }
+
+    .gauge-seg.seg-orange {
+        stroke: var(--cam);
+    }
+
+    .gauge-seg.seg-green {
+        stroke: var(--xanh);
+    }
+
+    .gauge-progress {
+        fill: none;
+        stroke: var(--xanh);
+        stroke-width: 12;
+        stroke-linecap: round;
+    }
+
+    .gauge-needle {
+        transition: transform 220ms ease;
+    }
+
+    .needle-line {
+        stroke: rgba(18, 24, 56, 0.9);
+        stroke-width: 3.5;
+        stroke-linecap: round;
+    }
+
+    .needle-hub {
+        fill: rgba(18, 24, 56, 0.92);
+    }
+
+    .gauge-label {
+        font-size: 11px;
+        fill: var(--chu-phu);
+    }
+
+    .traffic-light {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 8px;
+        padding: 8px 10px;
+        border-radius: 999px;
+        background: rgba(10, 14, 33, 0.04);
+    }
+
+    .traffic-dot {
+        width: 26px;
+        height: 26px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 900;
+        background: rgba(0, 0, 0, 0.06);
+        border: 1px solid rgba(0, 0, 0, 0.06);
+    }
+
+    .traffic-dot.red {
+        background: rgba(255, 72, 72, 0.12);
+        border-color: rgba(255, 72, 72, 0.18);
+    }
+
+    .traffic-dot.orange {
+        background: rgba(255, 166, 43, 0.12);
+        border-color: rgba(255, 166, 43, 0.18);
+    }
+
+    .traffic-dot.green {
+        background: rgba(34, 197, 94, 0.12);
+        border-color: rgba(34, 197, 94, 0.18);
+    }
+
+    .traffic-text {
+        font-size: 13px;
+        color: var(--chu);
+        font-weight: 700;
+    }
+
+    .pill-danger,
+    .pill-warn,
+    .pill-success {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-weight: 800;
+        margin-bottom: 8px;
+    }
+
+    .pill-danger {
+        background: rgba(255, 72, 72, 0.12);
+        color: #b42318;
+        border: 1px solid rgba(255, 72, 72, 0.18);
+    }
+
+    .pill-warn {
+        background: rgba(255, 166, 43, 0.14);
+        color: #b25e00;
+        border: 1px solid rgba(255, 166, 43, 0.22);
+    }
+
+    .pill-success {
+        background: rgba(34, 197, 94, 0.12);
+        color: #067647;
+        border: 1px solid rgba(34, 197, 94, 0.18);
+    }
+
+    .muted-small {
+        color: var(--chu-phu);
+        font-size: 12px;
+        line-height: 1.35;
+    }
+
+    .pareto-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .pareto-row {
+        display: grid;
+        grid-template-columns: 1.2fr 2fr auto;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .pareto-left {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .pareto-name {
+        font-weight: 700;
+        color: var(--chu);
+        font-size: 13px;
+    }
+
+    .pareto-bar {
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(18, 24, 56, 0.08);
+        overflow: hidden;
+    }
+
+    .pareto-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: var(--xanh);
+    }
+
+    .pareto-val {
+        font-weight: 800;
+        font-size: 12px;
+        color: var(--chu-phu);
+    }
+
+    .dist-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .dist-row {
+        display: grid;
+        grid-template-columns: 90px 1fr 34px;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .dist-label {
+        font-size: 12px;
+        color: var(--chu);
+        font-weight: 700;
+    }
+
+    .dist-bar {
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(18, 24, 56, 0.08);
+        overflow: hidden;
+    }
+
+    .dist-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: var(--cam);
+    }
+
+    .dist-val {
+        text-align: right;
+        font-weight: 800;
+        font-size: 12px;
+        color: var(--chu-phu);
+    }
+
+    .kpi-card-mini {
+        border: 1px solid rgba(88, 106, 255, 0.12);
+        background: rgba(255, 255, 255, 0.72);
+        border-radius: 14px;
+        padding: 10px;
+        box-shadow: 0 10px 26px rgba(10, 14, 33, 0.06);
+    }
+
+    .kpi-card-mini .top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+    }
+
+    .kpi-card-mini .name {
+        font-weight: 800;
+        color: var(--chu);
+        font-size: 13px;
+        margin-bottom: 6px;
+    }
+
+    .kpi-card-mini .meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        color: var(--chu-phu);
+        font-size: 12px;
+    }
+
+    .trend-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        padding: 8px 0;
+        border-bottom: 1px dashed rgba(18, 24, 56, 0.12);
+    }
+
+    .trend-item:last-child {
+        border-bottom: none;
+    }
+
+    .trend-date {
+        color: var(--chu-phu);
+        font-size: 12px;
+    }
+
+    .trend-score {
+        color: var(--chu);
+        font-size: 12px;
+    }
+
+    .modal-kpi-meta {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 12px;
+        padding: 10px;
+        background: rgba(10, 14, 33, 0.04);
+        border-radius: 12px;
+        margin-bottom: 12px;
+        border: 1px solid rgba(18, 24, 56, 0.08);
+        font-size: 13px;
+    }
+
+    .modal-actions .modal-subtitle {
+        font-weight: 900;
+        margin: 10px 0 8px;
+    }
+
+    .modal-list {
+        padding-left: 18px;
+        margin: 0;
+    }
+
+    .modal-list li {
+        margin: 6px 0;
+        color: var(--chu);
+    }
+
+    /* =========================================================
+   THEME V2 — đồng bộ màu chủ đạo Soft_KO (cam Shopee #EE4D2D)
+   - Giảm "trắng loá", tăng điểm nhấn
+   ========================================================= */
+    body {
+        background: linear-gradient(180deg, var(--cam-nhat) 0%, var(--nen) 260px);
+    }
+
+    .dashboard-header {
+        background: linear-gradient(180deg, #ffffff 0%, #fff7f3 100%);
+        border-bottom: 2px solid rgba(238, 77, 45, 0.18);
+        backdrop-filter: blur(6px);
+    }
+
+    .logo {
+        box-shadow: 0 10px 30px rgba(238, 77, 45, .22);
+    }
+
+    .card {
+        position: relative;
+        border: 1px solid rgba(17, 24, 39, 0.08);
+        box-shadow: 0 10px 26px rgba(17, 24, 39, 0.06);
+    }
+
+    .card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 4px;
+        width: 100%;
+        background: linear-gradient(90deg, var(--cam), rgba(238, 77, 45, .35));
+        border-radius: 14px 14px 0 0;
+        opacity: .9;
+    }
+
+    .table-container {
+        border: 1px solid rgba(238, 77, 45, 0.14);
+        box-shadow: 0 12px 28px rgba(17, 24, 39, 0.06);
+    }
+
+    .kpi-table thead th {
+        background: linear-gradient(180deg, #fff5f0 0%, #ffffff 100%);
+        border-bottom: 1px solid rgba(238, 77, 45, 0.18);
+        color: #111827;
+    }
+
+    .kpi-table tbody tr:hover {
+        background: rgba(238, 77, 45, 0.06);
+    }
+
+    /* ===== Modal recommendation — richer UI ===== */
+    .modal.active {
+        display: flex;
+    }
+
+    .rec-modal-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+        margin-bottom: 10px;
+    }
+
+    .rec-modal-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 800;
+        color: var(--chu);
+    }
+
+    .rec-modal-sub {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        font-size: 13px;
+        color: var(--chu-phu);
+        margin-top: 4px;
+    }
+
+    .status-chip {
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-weight: 800;
+        font-size: 13px;
+        white-space: nowrap;
+        border: 1px solid var(--duong-ke);
+        background: #fff;
+    }
+
+    .status-pass {
+        border-color: rgba(16, 185, 129, .35);
+        background: rgba(16, 185, 129, .10);
+        color: #065f46;
+    }
+
+    .status-partial {
+        border-color: rgba(245, 158, 11, .35);
+        background: rgba(245, 158, 11, .12);
+        color: #92400e;
+    }
+
+    .status-fail {
+        border-color: rgba(220, 38, 38, .35);
+        background: rgba(220, 38, 38, .10);
+        color: #7f1d1d;
+    }
+
+    .gate-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-weight: 800;
+        font-size: 12px;
+        border: 1px solid var(--duong-ke);
+        background: #fff;
+    }
+
+    .gate-tag.hard {
+        border-color: rgba(220, 38, 38, .35);
+        background: rgba(220, 38, 38, .08);
+        color: #7f1d1d;
+    }
+
+    .gate-tag.soft {
+        border-color: rgba(245, 158, 11, .35);
+        background: rgba(245, 158, 11, .10);
+        color: #92400e;
+    }
+
+    .rec-summary {
+        background: rgba(238, 77, 45, 0.06);
+        border: 1px solid rgba(238, 77, 45, 0.16);
+        padding: 10px 12px;
+        border-radius: 12px;
+        margin: 10px 0 14px;
+        color: var(--chu);
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .rec-metrics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 14px;
+    }
+
+    .rec-metric {
+        background: #fff;
+        border: 1px solid rgba(17, 24, 39, .08);
+        border-radius: 12px;
+        padding: 10px 12px;
+    }
+
+    .rec-metric .k {
+        font-size: 12px;
+        color: var(--chu-phu);
+        font-weight: 700;
+    }
+
+    .rec-metric .v {
+        font-size: 14px;
+        color: var(--chu);
+        font-weight: 900;
+        margin-top: 2px;
+    }
+
+    .recommendation-box {
+        background: #fff;
+        border: 1px solid rgba(17, 24, 39, .08);
+        border-left: 4px solid var(--cam);
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-top: 12px;
+        box-shadow: 0 10px 20px rgba(17, 24, 39, .05);
+    }
+
+    .recommendation-box h5 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 900;
+        color: var(--chu);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .recommendation-box.info {
+        border-left-color: var(--xanh);
+        background: linear-gradient(180deg, rgba(37, 99, 235, .06) 0%, #fff 100%);
+    }
+
+    .recommendation-box.warn {
+        border-left-color: var(--canh-bao);
+        background: linear-gradient(180deg, rgba(245, 158, 11, .08) 0%, #fff 100%);
+    }
+
+    .recommendation-box.ok {
+        border-left-color: var(--tot);
+        background: linear-gradient(180deg, rgba(16, 185, 129, .08) 0%, #fff 100%);
+    }
+
+    .rec-list {
+        margin: 0;
+        padding-left: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .rec-main {
+        font-weight: 700;
+        color: var(--chu);
+    }
+
+    .rec-sub {
+        font-size: 12px;
+        color: var(--chu-phu);
+        margin-top: 2px;
+    }
+
+    .rec-deadline {
+        margin-top: 12px;
+        font-size: 13px;
+        color: var(--nguy-hiem);
+        font-weight: 800;
+    }
+
+    @media (max-width: 900px) {
+        .rec-metrics {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    /* =========================================================
+   UI polish v4 — Group Chart + Gauge (Soft KO theme)
+   - Reduce excessive white
+   - Increase contrast + depth
+   - Brand accent: Shopee orange
+========================================================= */
+
+    /* Group chart container */
+    .group-chart {
+        min-height: 320px;
+        padding: 16px 0 6px;
+    }
+
+    /* Header icon + chips */
+    .gc-icon {
+        background: linear-gradient(180deg, var(--cam-nhat), #fff);
+        border-color: rgba(238, 77, 45, .22);
+        box-shadow: 0 6px 16px rgba(238, 77, 45, .10);
+    }
+
+    .gc-chip {
+        background: rgba(255, 255, 255, .85);
+        border-color: rgba(238, 77, 45, .18);
+    }
+
+    .gc-chip span.p0,
+    .gc-chip span.p1,
+    .gc-chip span.p2 {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        display: inline-block;
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, .9);
+    }
+
+    .gc-chip span.p0 {
+        background: var(--nguy-hiem);
+    }
+
+    .gc-chip span.p1 {
+        background: var(--cam);
+    }
+
+    .gc-chip span.p2 {
+        background: var(--tot);
+    }
+
+    /* Plot area */
+    .gc-area {
+        border: 1px solid rgba(238, 77, 45, .22);
+        background:
+            radial-gradient(900px 240px at 12% 0%, rgba(238, 77, 45, .14), rgba(238, 77, 45, 0) 55%),
+            radial-gradient(700px 200px at 92% 16%, rgba(37, 99, 235, .08), rgba(37, 99, 235, 0) 55%),
+            linear-gradient(180deg, #ffffff, #fff7f3);
+        box-shadow: 0 14px 34px rgba(17, 24, 39, .08);
+    }
+
+    /* Gridlines: dashed + warmer tone */
+    .gc-gridline {
+        border-top: 1px dashed rgba(238, 77, 45, .22);
+    }
+
+    .gc-gridline::before {
+        background: rgba(255, 255, 255, .90);
+        border: 1px solid rgba(238, 77, 45, .10);
+    }
+
+    /* Bars area: bigger + less cramped */
+    .gc-bars {
+        height: 240px;
+        gap: 20px;
+        padding-top: 14px;
+    }
+
+    .gc-track {
+        height: 200px;
+        padding: 8px;
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(229, 231, 235, .68));
+        border: 1px solid rgba(17, 24, 39, .06);
+        box-shadow:
+            inset 0 1px 0 rgba(255, 255, 255, .90),
+            inset 0 -10px 18px rgba(17, 24, 39, .05);
+    }
+
+    .gc-fill {
+        left: 8px;
+        right: 8px;
+        bottom: 8px;
+        border-radius: 16px;
+        background: linear-gradient(180deg, rgba(238, 77, 45, .98), rgba(238, 77, 45, .22));
+        box-shadow: 0 14px 22px rgba(238, 77, 45, .14);
+    }
+
+    .gc-fill::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: linear-gradient(180deg, rgba(255, 255, 255, .35), rgba(255, 255, 255, 0) 58%);
+        pointer-events: none;
+    }
+
+    .gc-fill.weak {
+        background: linear-gradient(180deg, rgba(220, 38, 38, .98), rgba(220, 38, 38, .18));
+        box-shadow: 0 14px 22px rgba(220, 38, 38, .16);
+    }
+
+    .gc-sub {
+        letter-spacing: .01em;
+    }
+
+    .gc-col .gc-h {
+        font-size: 18px;
+        font-weight: 1100;
+    }
+
+    /* =========================================================
+   Gauge polish (Soft KO theme)
+========================================================= */
+    .gauge-wrap {
+        background:
+            radial-gradient(650px 220px at 18% 0%, rgba(238, 77, 45, .16), rgba(238, 77, 45, 0) 58%),
+            linear-gradient(180deg, rgba(255, 255, 255, .92), #fff7f3);
+        border: 1px solid rgba(238, 77, 45, .22);
+        box-shadow: 0 14px 34px rgba(17, 24, 39, .10);
+        border-radius: 18px;
+        padding: 12px 14px;
+    }
+
+    .gauge-track,
+    .gauge-seg,
+    .gauge-progress {
+        stroke-width: 14;
+    }
+
+    .gauge-track {
+        stroke: rgba(17, 24, 39, .12);
+    }
+
+    .gauge-seg.seg-orange {
+        stroke: var(--cam);
+    }
+
+    .gauge-seg.seg-green {
+        stroke: var(--tot);
+    }
+
+    /* xanh lá cho >=70 */
+    .gauge-progress {
+        stroke: var(--cam);
+    }
+
+    .needle-line {
+        stroke: rgba(17, 24, 39, .88);
+        stroke-width: 4;
+    }
+
+    .needle-hub {
+        fill: rgba(17, 24, 39, .92);
+    }
+
+    .gauge-label {
+        fill: rgba(107, 114, 128, .95);
+        font-weight: 900;
+    }
+
+    /* =========================================================
+   INSIGHT CARDS — High-contrast "see it instantly" mode
+   (only affects top snapshot cards)
+========================================================= */
+    .insight-grid {
+        gap: 14px;
+    }
+
+    .insight-card {
+        border: 1px solid rgba(15, 23, 42, .10);
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 18px 44px rgba(15, 23, 42, .12);
+        position: relative;
+        overflow: hidden;
+        transform: translateZ(0);
+        transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+
+    .insight-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 26px 62px rgba(15, 23, 42, .18);
+        border-color: rgba(238, 77, 45, .28);
+    }
+
+    /* Left color stripe */
+    .insight-card::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 6px;
+        height: 100%;
+        background: linear-gradient(180deg, rgba(238, 77, 45, 1), rgba(238, 77, 45, .35));
+    }
+
+    /* Color variants (by card type) */
+    .insight-card--risk::before {
+        background: linear-gradient(180deg, #22c55e, #86efac);
+    }
+
+    .insight-card--weak::before {
+        background: linear-gradient(180deg, #ef4444, #fecaca);
+    }
+
+    .insight-card--kpi::before {
+        background: linear-gradient(180deg, #3b82f6, #bfdbfe);
+    }
+
+    .insight-card--top::before {
+        background: linear-gradient(180deg, #f59e0b, #fde68a);
+    }
+
+    /* Slight tinted backdrop to increase separation from page */
+    .insight-card--top {
+        background: linear-gradient(180deg, #fff, rgba(245, 158, 11, .06));
+    }
+
+    .insight-card--risk {
+        background: linear-gradient(180deg, #fff, rgba(34, 197, 94, .06));
+    }
+
+    .insight-card--kpi {
+        background: linear-gradient(180deg, #fff, rgba(59, 130, 246, .06));
+    }
+
+    .insight-card--weak {
+        background: linear-gradient(180deg, #fff, rgba(239, 68, 68, .05));
+    }
+
+    .insight-head {
+        padding: 14px 14px 8px 16px;
+        align-items: flex-start;
+    }
+
+    .insight-title {
+        font-size: 14px;
+        font-weight: 1200;
+        color: rgba(15, 23, 42, .96);
+        letter-spacing: .2px;
+    }
+
+    .insight-sub {
+        font-size: 12px;
+        font-weight: 900;
+        color: rgba(15, 23, 42, .60);
+    }
+
+    .insight-body {
+        padding: 0 14px 14px 16px;
+        color: rgba(15, 23, 42, .88);
+        font-weight: 850;
+    }
+
+    /* Make key numbers/keywords pop even if injected as <strong>/<b> */
+    .insight-body strong,
+    .insight-body b {
+        font-weight: 1400;
+        color: rgba(15, 23, 42, .96);
+    }
+
+    /* If dashboard.js uses these common classnames, they will pop automatically */
+    .insight-body .insight-metric,
+    .insight-body .metric,
+    .insight-body .big,
+    .insight-body .value-big {
+        margin-top: 6px;
+        font-size: 26px;
+        font-weight: 1400;
+        letter-spacing: .2px;
+        color: rgba(15, 23, 42, .96);
+        line-height: 1.05;
+    }
+
+    /* KPI pill inside insight becomes a prominent chip */
+    .insight-card .kpi-pill {
+        border-radius: 14px;
+        padding: 10px 12px;
+        background: rgba(238, 77, 45, .06);
+        border: 1px solid rgba(238, 77, 45, .18);
+        box-shadow: 0 14px 26px rgba(238, 77, 45, .10);
+    }
+
+    .insight-card .kpi-pill:hover {
+        border-color: rgba(238, 77, 45, .55);
+        box-shadow: 0 18px 34px rgba(238, 77, 45, .16);
+    }
+
+    .insight-card .kpi-pill-id {
+        color: rgba(238, 77, 45, 1);
+        font-weight: 1400;
+        letter-spacing: .4px;
+    }
+
+    .insight-card .kpi-pill-impact {
+        color: rgba(15, 23, 42, .92);
+        font-weight: 1200;
+    }
+
+    /* Gate badge if injected into insight body */
+    .insight-card .gate-badge,
+    .insight-card .badge.gate {
+        border-radius: 999px;
+        padding: 10px 12px;
+        font-weight: 1300;
+        box-shadow: 0 14px 26px rgba(15, 23, 42, .10);
+    }
+
+    /* Skeleton a bit stronger */
+    .insight-skeleton {
+        background: linear-gradient(90deg, #f3f4f6, #fff7f3, #f3f4f6);
+    }
+
+
+    /* =========================
+   FIXLIST + KPI TABLE – richer surface (no "white sheet")
+   ========================= */
+
+    /* Section wrappers */
+    .section,
+    .panel,
+    .card-section,
+    .block,
+    .box {
+        background: linear-gradient(180deg, #ffffff 0%, #fff7f3 100%);
+    }
+
+    /* If your page uses these IDs */
+    #fixlistSection,
+    #kpiTableSection {
+        background: transparent;
+    }
+
+    /* Titles with stronger bar */
+    .section-title,
+    .panel-title,
+    .block-title,
+    h2.section-h,
+    .section-header {
+        position: relative;
+        padding-left: 12px;
+    }
+
+    .section-title::before,
+    .panel-title::before,
+    .block-title::before,
+    h2.section-h::before,
+    .section-header::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 6px;
+        height: 70%;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(238, 77, 45, 1), rgba(238, 77, 45, .35));
+    }
+
+    /* Fixlist card */
+    .fixlist-card,
+    .fixlist-item,
+    .fix-card {
+        border: 1px solid rgba(15, 23, 42, .10);
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 16px 40px rgba(15, 23, 42, .10);
+    }
+
+    .fixlist-item {
+        padding: 14px;
+    }
+
+    .fixlist-item .kpi-badge,
+    .fixlist-item .pill,
+    .fixlist-item .tag {
+        background: rgba(238, 77, 45, .08);
+        border: 1px solid rgba(238, 77, 45, .18);
+        color: rgba(238, 77, 45, 1);
+        font-weight: 1300;
+        border-radius: 12px;
+        padding: 8px 10px;
+    }
+
+    /* Search bar + filter */
+    .table-toolbar,
+    .kpi-toolbar,
+    .filter-row {
+        background: #fff;
+        border: 1px solid rgba(15, 23, 42, .10);
+        border-radius: 16px;
+        box-shadow: 0 14px 34px rgba(15, 23, 42, .08);
+        padding: 10px 12px;
+    }
+
+    /* Inputs */
+    .table-toolbar input,
+    .kpi-toolbar input,
+    .filter-row input,
+    .table-toolbar select,
+    .kpi-toolbar select,
+    .filter-row select {
+        border: 1px solid rgba(15, 23, 42, .12);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: #fff;
+        transition: box-shadow .15s ease, border-color .15s ease;
+    }
+
+    .table-toolbar input:focus,
+    .kpi-toolbar input:focus,
+    .filter-row input:focus,
+    .table-toolbar select:focus,
+    .kpi-toolbar select:focus,
+    .filter-row select:focus {
+        outline: none;
+        border-color: rgba(238, 77, 45, .45);
+        box-shadow: 0 0 0 4px rgba(238, 77, 45, .12);
+    }
+
+    /* KPI table container */
+    .table-wrap,
+    .kpi-table-wrap,
+    .table-container {
+        background: #fff;
+        border: 1px solid rgba(15, 23, 42, .10);
+        border-radius: 18px;
+        box-shadow: 0 18px 44px rgba(15, 23, 42, .10);
+        overflow: hidden;
+    }
+
+    /* Table */
+    table {
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    thead th {
+        background: linear-gradient(180deg, #fff7f3, #ffffff);
+        color: rgba(15, 23, 42, .78);
+        font-weight: 1200;
+        letter-spacing: .2px;
+        border-bottom: 1px solid rgba(15, 23, 42, .10);
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+
+    tbody td {
+        border-bottom: 1px solid rgba(15, 23, 42, .08);
+        color: rgba(15, 23, 42, .92);
+        font-weight: 900;
+    }
+
+    tbody tr:nth-child(odd) {
+        background: rgba(15, 23, 42, .015);
+    }
+
+    tbody tr:hover {
+        background: rgba(238, 77, 45, .06);
+    }
+
+    /* KPI code pill in table */
+    .kpi-code,
+    .kpi-chip,
+    .pill-kpi {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        border-radius: 14px;
+        border: 1px solid rgba(15, 23, 42, .10);
+        background: #fff;
+        font-weight: 1300;
+        box-shadow: 0 10px 22px rgba(15, 23, 42, .06);
+    }
+
+    /* Priority badge P0/P1/P2/P3 */
+    .pri,
+    .priority-badge,
+    .p-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-weight: 1400;
+        border: 1px solid rgba(15, 23, 42, .10);
+        background: rgba(15, 23, 42, .04);
+    }
+
+    .pri.p0,
+    .priority-badge.p0 {
+        background: rgba(239, 68, 68, .10);
+        border-color: rgba(239, 68, 68, .22);
+        color: #ef4444;
+    }
+
+    .pri.p1,
+    .priority-badge.p1 {
+        background: rgba(245, 158, 11, .12);
+        border-color: rgba(245, 158, 11, .22);
+        color: #b45309;
+    }
+
+    .pri.p2,
+    .priority-badge.p2 {
+        background: rgba(59, 130, 246, .10);
+        border-color: rgba(59, 130, 246, .22);
+        color: #2563eb;
+    }
+
+    .pri.p3,
+    .priority-badge.p3 {
+        background: rgba(34, 197, 94, .10);
+        border-color: rgba(34, 197, 94, .22);
+        color: #16a34a;
+    }
+
+    /* “Impact” numbers align + bold */
+    .impact,
+    .impact-gap,
+    .impact-col {
+        font-variant-numeric: tabular-nums;
+        font-weight: 1300;
+        color: rgba(15, 23, 42, .92);
+    }
+
+    /* Make Recommendation column less empty */
+    .rec,
+    .recommendation-col {
+        color: rgba(15, 23, 42, .75);
+        font-weight: 850;
+    }
+
+
+    /* =========================
+   DASHBOARD THEME (closer to KPI_SCORING.html)
+   More color layers + depth, less "white sheet"
+========================= */
+    :root {
+        --shopee: #EE4D2D;
+        --bgA: #F3F6FB;
+        --bgB: #EEF2F7;
+        --ink: #0f172a;
+        --ink2: rgba(15, 23, 42, .78);
+        --line2: rgba(15, 23, 42, .10);
+        --cardShadow: 0 22px 60px rgba(15, 23, 42, .10);
+        --cardShadowHover: 0 30px 72px rgba(15, 23, 42, .16);
+        --radius-lg: 20px;
+    }
+
+    /* Page background */
+    body {
+        background: linear-gradient(180deg, var(--bgA) 0%, var(--bgB) 100%) !important;
+    }
+
+    /* Main content wrappers (safe) */
+    .dashboard-container,
+    .dashboard-content,
+    .container,
+    .wrap,
+    main {
+        background: transparent !important;
+    }
+
+    /* Section surfaces */
+    .section,
+    .dashboard-section,
+    .panel,
+    .block,
+    .card-section {
+        border-radius: var(--radius-lg) !important;
+        border: 1px solid var(--line2) !important;
+        box-shadow: var(--cardShadow) !important;
+        background: linear-gradient(180deg, #ffffff 0%, #f9fafc 100%) !important;
+    }
+
+    /* Section headers: stronger + stripe */
+    .section-head,
+    .section-header,
+    .panel-head,
+    .block-head,
+    .card-head {
+        background: linear-gradient(135deg, #0f172a, #111827) !important;
+        color: #fff !important;
+        border-bottom: none !important;
+        position: relative;
+    }
+
+    .section-head::after,
+    .section-header::after,
+    .panel-head::after,
+    .block-head::after,
+    .card-head::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        height: 4px;
+        background: linear-gradient(90deg, var(--shopee), rgba(238, 77, 45, .25));
+    }
+
+    /* Titles */
+    .section-title,
+    .panel-title,
+    .block-title,
+    .card-title,
+    h2,
+    h3 {
+        color: #fff;
+        font-weight: 1000;
+    }
+
+    /* Typography tuning */
+    body,
+    .muted,
+    .subtext {
+        color: var(--ink);
+    }
+
+    .muted,
+    .subtext {
+        color: rgba(15, 23, 42, .62) !important;
+        font-weight: 800 !important;
+    }
+
+    /* Insight cards: more punch + stripe color */
+    .insight-grid {
+        gap: 14px !important;
+    }
+
+    .insight-card {
+        border-radius: 18px !important;
+        border: 1px solid rgba(15, 23, 42, .10) !important;
+        box-shadow: 0 18px 44px rgba(15, 23, 42, .12) !important;
+        background: linear-gradient(180deg, #ffffff 0%, #ffffff 60%, rgba(238, 77, 45, .04) 100%) !important;
+        overflow: hidden;
+        position: relative;
+        transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+
+    .insight-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 26px 62px rgba(15, 23, 42, .18) !important;
+        border-color: rgba(238, 77, 45, .28) !important;
+    }
+
+    .insight-card::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 6px;
+        height: 100%;
+        background: linear-gradient(180deg, rgba(238, 77, 45, 1), rgba(238, 77, 45, .35));
+    }
+
+    .insight-card--risk::before {
+        background: linear-gradient(180deg, #22c55e, #86efac);
+    }
+
+    .insight-card--weak::before {
+        background: linear-gradient(180deg, #ef4444, #fecaca);
+    }
+
+    .insight-card--kpi::before {
+        background: linear-gradient(180deg, #3b82f6, #bfdbfe);
+    }
+
+    .insight-card--top::before {
+        background: linear-gradient(180deg, #f59e0b, #fde68a);
+    }
+
+    .insight-icon {
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(238, 77, 45, .10);
+        border: 1px solid rgba(238, 77, 45, .20);
+        font-size: 16px;
+    }
+
+    .insight-title {
+        font-size: 14px !important;
+        font-weight: 1200 !important;
+        color: rgba(15, 23, 42, .95) !important;
+    }
+
+    .insight-sub {
+        font-size: 12px !important;
+        font-weight: 900 !important;
+        color: rgba(15, 23, 42, .60) !important;
+    }
+
+    .insight-metric {
+        margin-top: 6px;
+        font-size: 28px;
+        font-weight: 1400;
+        color: rgba(15, 23, 42, .96);
+        line-height: 1.05;
+        letter-spacing: .2px;
+    }
+
+    /* KPI pill */
+    .kpi-pill {
+        background: rgba(238, 77, 45, .06) !important;
+        border: 1px solid rgba(238, 77, 45, .18) !important;
+        box-shadow: 0 14px 26px rgba(238, 77, 45, .10) !important;
+        border-radius: 14px !important;
+    }
+
+    .kpi-pill-id {
+        color: var(--shopee) !important;
+        font-weight: 1400 !important;
+    }
+
+    .kpi-pill-impact {
+        color: rgba(15, 23, 42, .90) !important;
+        font-weight: 1200 !important;
+    }
+
+    /* Gate badge */
+    .gate-pill {
+        border-radius: 999px !important;
+        padding: 10px 12px !important;
+        font-weight: 1300 !important;
+        border: 1px solid rgba(34, 197, 94, .28) !important;
+        background: rgba(34, 197, 94, .10) !important;
+        box-shadow: 0 14px 26px rgba(34, 197, 94, .12) !important;
+    }
+
+    /* Fixlist & KPI table surfaces */
+    .fixlist-card,
+    .fixlist-item,
+    .fix-card {
+        background: linear-gradient(180deg, #ffffff, #fff4f1) !important;
+        border: 1px solid rgba(238, 77, 45, .18) !important;
+        box-shadow: 0 16px 40px rgba(238, 77, 45, .10) !important;
+        border-radius: 16px !important;
+    }
+
+    .table-toolbar,
+    .kpi-toolbar,
+    .filter-row {
+        background: linear-gradient(180deg, #ffffff, #f6f9ff) !important;
+        border: 1px solid rgba(59, 130, 246, .18) !important;
+        box-shadow: 0 18px 44px rgba(59, 130, 246, .08) !important;
+        border-radius: 16px !important;
+    }
+
+    .table-wrap,
+    .kpi-table-wrap,
+    .table-container {
+        background: linear-gradient(180deg, #ffffff, #f6f9ff) !important;
+        border: 1px solid rgba(59, 130, 246, .18) !important;
+        box-shadow: 0 20px 60px rgba(59, 130, 246, .08) !important;
+        border-radius: 20px !important;
+        overflow: hidden;
+    }
+
+    /* Table header + zebra + hover */
+    thead th {
+        background: linear-gradient(180deg, #f1f5ff, #ffffff) !important;
+        color: rgba(15, 23, 42, .82) !important;
+        font-weight: 1200 !important;
+        border-bottom: 1px solid rgba(15, 23, 42, .10) !important;
+    }
+
+    tbody tr:nth-child(odd) {
+        background: rgba(59, 130, 246, .03) !important;
+    }
+
+    tbody tr:hover {
+        background: rgba(238, 77, 45, .07) !important;
+    }
+
+    /* KPI chips in table */
+    .kpi-code,
+    .kpi-chip,
+    .pill-kpi {
+        background: #fff !important;
+        border: 1px solid rgba(15, 23, 42, .12) !important;
+        border-radius: 14px !important;
+        padding: 8px 12px !important;
+        font-weight: 1200 !important;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, .07) !important;
+    }
+</style>
+
+<body class="is-loading">
+
+    <div id="loadingOverlay" class="loading-overlay" aria-hidden="true">
+        <div class="loading-card">
+            <div class="loading-title skeleton shimmer"></div>
+            <div class="loading-sub skeleton shimmer"></div>
+            <div class="loading-row">
+                <div class="loading-box skeleton shimmer"></div>
+                <div class="loading-box skeleton shimmer"></div>
+                <div class="loading-box skeleton shimmer"></div>
+            </div>
+            <div class="loading-wide skeleton shimmer"></div>
+            <div class="loading-wide skeleton shimmer"></div>
         </div>
-      `;
-        }
-        html += "</div>";
-        el.innerHTML = html;
-    }
+    </div>
 
-    function renderFixlist() {
-        const el = $("fixlist-section");
-        if (!el) return;
-
-        const { items: fixItems } = buildFixlist(allKpis);
-        const show = fixItems.filter((it) => it.gateType !== "NONE" || it.impactGap > 0);
-
-        if (show.length === 0) {
-            el.innerHTML = '<p style="color: var(--chu-phu);">Không có mục nào cần ưu tiên.</p>';
-            return;
-        }
-
-        const top8 = show.slice(0, 8);
-
-        let html = '<div class="fixlist-grid" style="display: grid; gap: 12px;">';
-        for (const it of top8) {
-            const prioColor = { P0: "var(--nguy-hiem)", P1: "var(--cam)", P2: "var(--canh-bao)", P3: "var(--chu-phu)" }[it.priority] || "var(--chu-phu)";
-            const gateLabel = it.gateType === "HARD_KO" ? "🚫 Hard KO" : it.gateType === "SOFT_KO" ? "⏳ Soft KO" : "";
-            const kpiIdArg = JSON.stringify(it.kpiId);
-
-            html += `
-        <div class="fixlist-item"
-             style="padding: 14px; background: var(--trang); border-radius: 6px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); cursor: pointer; transition: box-shadow 0.2s;"
-             onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.15)'"
-             onmouseout="this.style.boxShadow='0 1px 4px rgba(0,0,0,0.08)'"
-             onclick="renderRecommendationModal(${kpiIdArg})">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-            <span style="font-weight:700;color:${prioColor};font-size:12px;">${it.priority}</span>
-            ${gateLabel ? `<span style="font-size:12px;color:var(--nguy-hiem);">${gateLabel}</span>` : ""}
-          </div>
-          <div style="font-weight:600;color:var(--chu);margin-bottom:4px;">${escapeHtml(it.title || it.kpiId)}</div>
-          <div style="font-size:13px;color:var(--chu-phu);">
-            Điểm: ${Number(it.score ?? 0)} • Gap: ${Number(it.impactGap ?? 0).toFixed(1)} • Nỗ lực: ${Number(it.effort ?? 0)}
-          </div>
+    <!-- Header cố định -->
+    <header class="dashboard-header">
+        <div class="header-container">
+            <div class="header-left">
+                <div class="logo">SMROS</div>
+                <h1 class="header-title">Dashboard – Mall Readiness</h1>
+            </div>
+            <div class="header-right">
+                <button class="btn-header" id="btnBackToResult">← Quay lại Kết quả</button>
+                <button class="btn-header btn-primary" id="btnBackToKPI">Về trang Chấm điểm KPI</button>
+            </div>
         </div>
-      `;
-        }
-        html += "</div>";
-        el.innerHTML = html;
-    }
 
-    function renderKpiTable() {
-        const el = $("kpi-table-section");
-        if (!el) return;
-
-        const filtered = allKpis;
-
-        if (filtered.length === 0) {
-            el.innerHTML = '<p style="color: var(--chu-phu);">Không có KPI nào.</p>';
-            return;
-        }
-
-        const tableHtml = `
-      <div class="table-desktop" style="overflow-x: auto;">
-        <table style="width: 100%; border-collapse: collapse; background: var(--trang); border-radius: 8px; overflow: hidden;">
-          <thead>
-            <tr style="background: var(--nen-phu); color: var(--chu);">
-              <th style="padding: 12px; text-align: left; font-weight: 600;">Ưu tiên</th>
-              <th style="padding: 12px; text-align: left; font-weight: 600;">KPI</th>
-              <th style="padding: 12px; text-align: left; font-weight: 600;">Nhóm</th>
-              <th style="padding: 12px; text-align: center; font-weight: 600;">Điểm</th>
-              <th style="padding: 12px; text-align: center; font-weight: 600;">Trọng số</th>
-              <th style="padding: 12px; text-align: left; font-weight: 600;">Impact</th>
-              <th style="padding: 12px; text-align: center; font-weight: 600;">Hành động</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${renderTableRows(filtered)}
-          </tbody>
-        </table>
-      </div>
-      <div class="table-mobile" style="display:none;">
-        ${renderMobileCards(filtered)}
-      </div>
-    `;
-
-        el.innerHTML = tableHtml;
-    }
-
-    function renderTableRows(kpis) {
-        const { items: fixItems } = buildFixlist(allKpis);
-        const prioMap = new Map();
-        for (const it of fixItems) prioMap.set(it.kpiId, { priority: it.priority, impactGap: it.impactGap, gateType: it.gateType });
-
-        const maxImpact = Math.max(...fixItems.map((x) => x.impactGap || 0), 0.0001);
-
-        let html = "";
-        for (const k of kpis) {
-            const pid = normalizeKpiId(k.kpiId || k.rule_id || k);
-            const info = prioMap.get(pid) || { priority: "P3", impactGap: 0, gateType: "NONE" };
-            const prioColor = { P0: "var(--nguy-hiem)", P1: "var(--cam)", P2: "var(--canh-bao)", P3: "var(--chu-phu)" }[info.priority] || "var(--chu-phu)";
-
-            let scoreColor = "var(--nguy-hiem)";
-            if (k.score >= 80) scoreColor = "var(--xanh)";
-            else if (k.score >= 60) scoreColor = "var(--canh-bao)";
-
-            let impactBarHtml = "";
-            if (info.gateType === "NONE") {
-                const barWidth = Math.min(100, Math.max(0, (info.impactGap / maxImpact) * 100));
-                let barColor = "var(--chu-phu)";
-                if (info.impactGap >= 10) barColor = "var(--cam)";
-                if (info.impactGap >= 20) barColor = "var(--nguy-hiem)";
-
-                impactBarHtml = `
-          <div style="width:100%;max-width:120px;height:8px;background:var(--nen-phu);border-radius:4px;overflow:hidden;">
-            <div style="width:${barWidth}%;height:100%;background:${barColor};"></div>
-          </div>
-          <span style="font-size:12px;color:var(--chu-phu);margin-left:6px;">${Number(info.impactGap).toFixed(1)}</span>
-        `;
-            } else {
-                impactBarHtml = '<span style="font-size: 12px; color: var(--chu-phu);">—</span>';
-            }
-
-            const kpiIdArg = JSON.stringify(pid);
-
-            html += `
-        <tr onclick="renderRecommendationModal(${kpiIdArg})" style="border-bottom: 1px solid var(--vien); cursor: pointer;">
-          <td style="padding: 12px;">
-            <span style="display:inline-block;padding:4px 8px;background:${prioColor};color:var(--trang);border-radius:4px;font-size:11px;font-weight:700;">
-              ${info.priority}
-            </span>
-          </td>
-          <td style="padding: 12px; font-weight: 600; color: var(--chu);">${escapeHtml(k.title || pid)}</td>
-          <td style="padding: 12px; color: var(--chu-phu);">${escapeHtml(k.group || groupOf(pid))}</td>
-          <td style="padding: 12px; text-align: center; font-weight: 700; color: ${scoreColor};">${Number(k.score ?? 0)}</td>
-          <td style="padding: 12px; text-align: center; color: var(--chu-phu);">${(Number(k.weight_final ?? 0) * 100).toFixed(0)}%</td>
-          <td style="padding: 12px;"><div style="display:flex;align-items:center;">${impactBarHtml}</div></td>
-          <td style="padding: 12px; text-align: center;">
-            <button onclick="event.stopPropagation(); renderRecommendationModal(${kpiIdArg})"
-                    style="padding: 6px 12px; background: var(--xanh); color: var(--trang); border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer;">
-              Chi tiết
-            </button>
-          </td>
-        </tr>
-      `;
-        }
-        return html;
-    }
-
-    function renderMobileCards(kpis) {
-        const { items: fixItems } = buildFixlist(allKpis);
-        const prioMap = new Map();
-        for (const it of fixItems) prioMap.set(it.kpiId, { priority: it.priority, impactGap: it.impactGap, gateType: it.gateType });
-
-        let html = '<div style="display: grid; gap: 12px;">';
-        for (const k of kpis) {
-            const pid = normalizeKpiId(k.kpiId || k.rule_id || k);
-            const info = prioMap.get(pid) || { priority: "P3", impactGap: 0, gateType: "NONE" };
-            const prioColor = { P0: "var(--nguy-hiem)", P1: "var(--cam)", P2: "var(--canh-bao)", P3: "var(--chu-phu)" }[info.priority] || "var(--chu-phu)";
-
-            let scoreColor = "var(--nguy-hiem)";
-            if (k.score >= 80) scoreColor = "var(--xanh)";
-            else if (k.score >= 60) scoreColor = "var(--canh-bao)";
-
-            const kpiIdArg = JSON.stringify(pid);
-
-            html += `
-        <div class="mobile-card"
-             style="padding:14px;background:var(--trang);border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,0.08);cursor:pointer;"
-             onclick="renderRecommendationModal(${kpiIdArg})">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-            <span style="display:inline-block;padding:4px 8px;background:${prioColor};color:var(--trang);border-radius:4px;font-size:11px;font-weight:700;">
-              ${info.priority}
-            </span>
-            <span style="font-size:24px;font-weight:700;color:${scoreColor};">${Number(k.score ?? 0)}</span>
-          </div>
-          <div style="font-weight:600;color:var(--chu);margin-bottom:4px;">${escapeHtml(k.title || pid)}</div>
-          <div style="font-size:13px;color:var(--chu-phu);margin-bottom:8px;">
-            ${escapeHtml(k.group || groupOf(pid))} • Trọng số: ${(Number(k.weight_final ?? 0) * 100).toFixed(0)}%
-          </div>
-          <button onclick="event.stopPropagation(); renderRecommendationModal(${kpiIdArg})"
-                  style="padding:6px 12px;background:var(--xanh);color:var(--trang);border:none;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;width:100%;">
-            Xem chi tiết
-          </button>
+        <!-- Progress indicator -->
+        <div class="progress-bar-container">
+            <div class="progress-bar">
+                <div class="progress-step completed">
+                    <div class="step-dot">✓</div>
+                    <span>Nhập dữ liệu</span>
+                </div>
+                <div class="progress-line completed"></div>
+                <div class="progress-step completed">
+                    <div class="step-dot">✓</div>
+                    <span>Chấm điểm</span>
+                </div>
+                <div class="progress-line active"></div>
+                <div class="progress-step active">
+                    <div class="step-dot">3</div>
+                    <span>Dashboard</span>
+                </div>
+            </div>
         </div>
-      `;
-        }
-        html += "</div>";
-        return html;
-    }
+    </header>
 
-    // ========================
-    // Modal (simple + safe)
-    // ========================
-    // ========================
-    // Modal (recommendation) — scored + consistent with actual KPI result
-    // ========================
-    function buildTargetText(kpiId) {
-        try {
-            const meta = window.MRSM_CONFIG?.getKpiMeta ? window.MRSM_CONFIG.getKpiMeta(kpiId) : null;
-            if (!meta) return "";
-            const dir = String(meta.direction || "").toUpperCase();
-            const t1 = meta.t1;
-            const t2 = meta.t2;
-            const fmt = (x) => (x === undefined || x === null || x === "") ? "" : String(x);
-            if (dir === "LE") return `≤ ${fmt(t1)} (50đ nếu ≤ ${fmt(t2)})`;
-            if (dir === "GE") return `≥ ${fmt(t1)} (50đ nếu ≥ ${fmt(t2)})`;
-            return "";
-        } catch { return ""; }
-    }
-
-    function formatValue(v) {
-        if (v === null || v === undefined || v === "") return "—";
-        if (typeof v === "number") return Number.isFinite(v) ? String(v) : "—";
-        const n = Number(v);
-        if (Number.isFinite(n) && String(v).trim() !== "") return String(v);
-        return String(v);
-    }
-
-    function scoreStatus(score) {
-        const s = Number(score ?? 0);
-        if (s >= 100) return { key: "PASS", label: "✅ Đạt", cls: "status-pass", desc: "KPI đang đạt. Bạn chỉ cần duy trì và tối ưu nhẹ." };
-        if (s >= 50) return { key: "PARTIAL", label: "🟠 Cần cải thiện", cls: "status-partial", desc: "KPI tiệm cận mục tiêu. Ưu tiên các hành động nâng từ 50 → 100." };
-        return { key: "FAIL", label: "🔴 Chưa đạt", cls: "status-fail", desc: "KPI chưa đạt tiêu chuẩn. Ưu tiên khắc phục theo khuyến nghị." };
-    }
-
-    window.renderRecommendationModal = function renderRecommendationModal(kpiIdRaw) {
-        const modal = $("recommendation-modal");
-        const modalBody = $("modal-body");
-        if (!modal || !modalBody) return;
-
-        const kpiId = normalizeKpiId(kpiIdRaw);
-        const item = (allKpis || []).find((x) => normalizeKpiId(x) === kpiId);
-        if (!item) return;
-
-        const rec = getRecommendation(kpiId);
-
-        const impactGap = calcImpactGap(item);
-        const score = Number(item?.score ?? 0);
-        const w = Number(item?.weight_final ?? 0);
-        const v = (item?.value ?? item?.raw_value ?? item?.val ?? item?.meta?.value ?? item?.meta?.input_value);
-
-        const st = scoreStatus(score);
-        const gateType = detectGateType(kpiId, item);
-        let gateLabel = "";
-        if (gateType === "HARD_KO") gateLabel = '<span class="gate-tag hard">🚫 Hard KO</span>';
-        else if (gateType === "SOFT_KO") gateLabel = '<span class="gate-tag soft">⏳ Soft KO</span>';
-
-        const target = buildTargetText(kpiId);
-
-        modalBody.innerHTML = `
-  <div class="rec-modal-head">
-    <div>
-      <h3 class="rec-modal-title">${escapeHtml(rec?.ten_kpi || item?.title || kpiId)}</h3>
-      <div class="rec-modal-sub">
-        <span class="mono">ID: ${escapeHtml(kpiId)}</span>
-        <span>•</span>
-        <span>Nhóm: ${escapeHtml(rec?.nhom || item?.group || "N/A")}</span>
-        ${gateLabel ? `<span>•</span>${gateLabel}` : ""}
-      </div>
-    </div>
-    <div class="status-chip ${st.cls}">${st.label}</div>
-  </div>
-
-  <div class="rec-summary">${escapeHtml(st.desc)}</div>
-
-  <div class="rec-metrics">
-    <div class="rec-metric">
-      <div class="k">Điểm</div>
-      <div class="v">${Math.round(score)}</div>
-    </div>
-    <div class="rec-metric">
-      <div class="k">Giá trị hiện tại</div>
-      <div class="v">${escapeHtml(formatValue(v))}</div>
-    </div>
-    <div class="rec-metric">
-      <div class="k">Mục tiêu</div>
-      <div class="v">${escapeHtml(target || (rec?.insight?.muc_tieu || "—"))}</div>
-    </div>
-    <div class="rec-metric">
-      <div class="k">Trọng số</div>
-      <div class="v">${(w * 100).toFixed(1)}%</div>
-    </div>
-    <div class="rec-metric">
-      <div class="k">Impact Gap</div>
-      <div class="v">${Number.isFinite(impactGap) ? impactGap.toFixed(2) : "0.00"}</div>
-    </div>
-  </div>
-
-  ${fallbackRecommendation(kpiId, { score, status: st.key, currentValue: v })}
-`;
-
-        modal.classList.add("active");
-    };;
-
-    window.closeRecommendationModal = function closeRecommendationModal() {
-        const modal = $("recommendation-modal");
-        if (modal) modal.classList.remove("active");
-    };
-
-    function fallbackRecommendation(id, ctx = {}) {
-        const rec = getRecommendation(id);
-        const score = Number(ctx.score ?? NaN);
-        const status = String(ctx.status || "").toUpperCase(); // PASS | PARTIAL | FAIL
-        const currentValue = ctx.currentValue;
-
-        if (!rec) {
-            // Nếu KPI đã đạt mà chưa có recommendation: show "duy trì"
-            if (Number.isFinite(score) && score >= 100) {
-                return `
-      <div class="recommendation-box ok">
-        <h5>✅ KPI đã đạt — gợi ý duy trì</h5>
-        <ul>
-          <li>Duy trì quy trình hiện tại và theo dõi KPI hàng tuần.</li>
-          <li>Thiết lập cảnh báo khi KPI có xu hướng giảm.</li>
-          <li>Tối ưu thêm nếu muốn nâng độ ổn định (không bắt buộc).</li>
-        </ul>
-      </div>`;
-            }
-            return '<p style="color: var(--chu-phu);">Chưa có khuyến nghị chi tiết cho KPI này.</p>';
-        }
-
-        const toText = (x) => {
-            if (x == null) return "";
-            if (typeof x === "string") return x;
-            if (typeof x === "number") return String(x);
-            if (typeof x === "object") return x.viec || x.text || x.noi_dung || x.title || JSON.stringify(x);
-            return String(x);
-        };
-
-        // Auto-fill insight.hien_tai theo số liệu thực tế nếu trống
-        try {
-            if (rec.insight && typeof rec.insight === "object") {
-                if (!rec.insight.hien_tai || !String(rec.insight.hien_tai).trim()) {
-                    rec.insight.hien_tai = (currentValue === null || currentValue === undefined || currentValue === "")
-                        ? `Score ${Math.round(Number.isFinite(score) ? score : 0)}`
-                        : `Giá trị: ${String(currentValue)} (Score ${Math.round(Number.isFinite(score) ? score : 0)})`;
-                }
-                // Nếu KPI đã đạt thì override mô tả đánh giá để không bị "chưa đạt"
-                if (status === "PASS") {
-                    rec.insight.danh_gia = "KPI đã đạt theo kết quả chấm điểm. Ưu tiên duy trì và chuẩn hóa quy trình để tránh regress.";
-                } else if (status === "PARTIAL") {
-                    rec.insight.danh_gia = "KPI tiệm cận mục tiêu (50 điểm). Ưu tiên hành động nâng lên 100 điểm.";
-                } else if (status === "FAIL") {
-                    // giữ nguyên nếu rec có nội dung
-                    rec.insight.danh_gia = rec.insight.danh_gia || "KPI chưa đạt. Cần khắc phục theo gợi ý.";
-                }
-            }
-        } catch { /* ignore */ }
-
-        let html = "";
-
-        // Insight block
-        if (rec.insight && typeof rec.insight === "object") {
-            const i = rec.insight;
-            html += `
-    <div class="recommendation-box info">
-      <h5>📌 Insight</h5>
-      <ul>
-        <li><b>Hiện tại:</b> ${escapeHtml(toText(i.hien_tai) || "—")}</li>
-        <li><b>Mục tiêu:</b> ${escapeHtml(toText(i.muc_tieu) || "—")}</li>
-        <li><b>Chênh lệch:</b> ${escapeHtml(toText(i.chenhlech) || "—")}</li>
-        <li><b>Đánh giá:</b> ${escapeHtml(toText(i.danh_gia) || "—")}</li>
-      </ul>
-    </div>
-  `;
-        }
-
-        const priTitle = (status === "PASS") ? "🎯 Gợi ý duy trì / tối ưu" : "✅ Hành động ưu tiên";
-        const fixTitle = (status === "PASS") ? "🛠️ Nếu KPI có dấu hiệu giảm" : "🛠️ Hành động khắc phục";
-
-        if (Array.isArray(rec.hanh_dong_uu_tien) && rec.hanh_dong_uu_tien.length > 0) {
-            html += `
-    <div class="recommendation-box">
-      <h5>${priTitle}</h5>
-      <ul>${rec.hanh_dong_uu_tien.map((h) => `<li>${escapeHtml(toText(h))}</li>`).join("")}</ul>
-    </div>
-  `;
-        }
-
-        if (Array.isArray(rec.hanh_dong_khac_phuc) && rec.hanh_dong_khac_phuc.length > 0) {
-            html += `
-    <div class="recommendation-box warn">
-      <h5>${fixTitle}</h5>
-      <ul>${rec.hanh_dong_khac_phuc.map((h) => `<li>${escapeHtml(toText(h))}</li>`).join("")}</ul>
-    </div>
-  `;
-        }
-
-        if (Array.isArray(rec.luu_y) && rec.luu_y.length > 0) {
-            html += `
-    <div class="recommendation-box tip">
-      <h5>💡 Lưu ý</h5>
-      <ul>${rec.luu_y.map((l) => `<li>${escapeHtml(toText(l))}</li>`).join("")}</ul>
-    </div>
-  `;
-        }
-
-        // Nếu KPI đã đạt và không có nội dung nào → default maintain card
-        if (!html && Number.isFinite(score) && score >= 100) {
-            html = `
-    <div class="recommendation-box ok">
-      <h5>✅ KPI đã đạt — gợi ý duy trì</h5>
-      <ul>
-        <li>Thiết lập checklist kiểm soát để tránh tụt KPI.</li>
-        <li>Theo dõi xu hướng và cảnh báo sớm khi KPI giảm.</li>
-        <li>Tối ưu liên tục theo các best-practice (không bắt buộc).</li>
-      </ul>
-    </div>`;
-        }
-
-        if (rec.thoi_han) {
-            html += `<p class="rec-deadline">⏰ Thời hạn khuyến nghị: ${escapeHtml(rec.thoi_han)}</p>`;
-        }
-
-        return html || '<p style="color: var(--chu-phu);">Không có khuyến nghị.</p>';
-    }
-
-    // ========================
-    // Export JSON
-    // ========================
-    window.exportJSON = function exportJSON() {
-        if (!assessmentData) return;
-
-        try {
-            const blob = new Blob([JSON.stringify(assessmentData, null, 2)], { type: "application/json" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `assessment_${assessmentData.assessment_id || "export"}.json`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            URL.revokeObjectURL(url);
-        } catch (err) {
-            alert("Lỗi khi xuất file JSON.");
-        }
-    };
-
-    // ========================
-    // Trend analysis (optional)
-    // ========================
-    function computeTrendStatus(history, eps = 2) {
-        const pts = (history || [])
-            .map((x) => Number(x?.mrsm?.final_score ?? x?.final_score ?? x?.totalScore ?? NaN))
-            .filter((x) => Number.isFinite(x));
-
-        if (pts.length < 4) return { trend_status: "STABLE", delta: 0 };
-
-        const a = (pts[pts.length - 1] + pts[pts.length - 2]) / 2;
-        const b = (pts[pts.length - 3] + pts[pts.length - 4]) / 2;
-        const delta = a - b;
-
-        if (delta >= eps) return { trend_status: "IMPROVING", delta };
-        if (delta <= -eps) return { trend_status: "DECLINING", delta };
-        return { trend_status: "STABLE", delta };
-    }
-
-    function renderTrendAnalysis() {
-        const historyRaw = localStorage.getItem("assessment_history");
-        if (!historyRaw) return;
-
-        try {
-            const history = JSON.parse(historyRaw);
-            if (!Array.isArray(history) || history.length < 2) return;
-
-            const trendRaw = localStorage.getItem("assessment_trend");
-            const trend = trendRaw ? JSON.parse(trendRaw) : computeTrendStatus(history);
-
-            const trendDisplay = document.getElementById("trendDisplay");
-            if (!trendDisplay) return;
-
-            const { trend_status, delta } = trend || { trend_status: "STABLE", delta: 0 };
-
-            let trendIcon = "➖";
-            let trendLabel = "Stable";
-            let trendColor = "var(--chu-phu)";
-
-            if (trend_status === "IMPROVING") {
-                trendIcon = "📈";
-                trendLabel = "Improving";
-                trendColor = "var(--tot)";
-            } else if (trend_status === "DECLINING") {
-                trendIcon = "📉";
-                trendLabel = "Declining";
-                trendColor = "var(--nguy-hiem)";
-            }
-
-            const deltaText = delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
-            trendDisplay.innerHTML = `<span style="font-weight:700;color:${trendColor};">${trendIcon} ${trendLabel} (${deltaText})</span>`;
-        } catch (err) {
-            console.error("Error rendering trend:", err);
-        }
-    }
-
-    // ========================
-    // Empty state
-    // ========================
-    // ========================
-    // Storytelling helpers (Dashboard UX)
-    // ========================
-    let _controlsBound = false;
-    let fixlistItems = [];
-
-    function tiering(score) {
-        if (score < 50) return { cls: "tier-not-ready", label: "Not Ready", icon: "🔴", note: "Điểm thấp: cần ưu tiên xử lý các điểm nghẽn lớn." };
-        if (score <= 69) return { cls: "tier-partial", label: "Partially Ready", icon: "🟠", note: "Đã có nền tảng nhưng chưa đủ tiêu chuẩn Mall." };
-        if (score <= 84) return { cls: "tier-near", label: "Near Mall-Ready", icon: "🟢", note: "Rất gần chuẩn Mall — tập trung đóng các gap trọng số cao." };
-        return { cls: "tier-ready", label: "Mall-Ready", icon: "🏅", note: "Đạt mức Mall-Ready — duy trì KPI và tuân thủ Gate." };
-    }
-
-    function trafficLight(score) {
-        if (score < 50) return { cls: "red", dot: "🔴", text: "Rủi ro cao — ưu tiên P0/P1" };
-        if (score < 70) return { cls: "orange", dot: "🟠", text: "Cần cải thiện — tập trung gap lớn" };
-        return { cls: "green", dot: "🟢", text: "Tốt — tối ưu để đạt Mall-Ready" };
-    }
-
-    function setLoading(isLoading) {
-        try {
-            if (isLoading) document.body.classList.add("is-loading");
-            else document.body.classList.remove("is-loading");
-
-            const overlay = $("loadingOverlay");
-            if (overlay) overlay.style.display = isLoading ? "block" : "none";
-        } catch (_) { }
-    }
-
-    function safeJsonParse(raw) { try { return JSON.parse(raw); } catch { return null; } }
-
-    function round2(x) { return Math.round(Number(x || 0) * 100) / 100; }
-
-    function hasValue(v) {
-        if (v === null || v === undefined) return false;
-        if (typeof v === "string") return v.trim().length > 0;
-        if (typeof v === "number") return Number.isFinite(v);
-        if (typeof v === "boolean") return true;
-        if (typeof v === "object") return Object.keys(v).length > 0;
-        return false;
-    }
-
-    function computeInputCoverage(kpis) {
-        let filled = 0;
-        for (const k of (kpis || [])) {
-            if (hasValue(k.value)) filled++;
-        }
-        return { filled, total: (kpis || []).length };
-    }
-
-    function renderInsights() {
-        const topDragEl = $("insightTopDragBody");
-        const gateRiskEl = $("insightGateRiskBody");
-        const coverageEl = $("insightCoverageBody");
-        const weakestEl = $("insightWeakestGroupBody");
-        if (!topDragEl && !gateRiskEl && !coverageEl && !weakestEl) return;
-
-        const gateStatus = (assessmentData?.gate?.status || "UNKNOWN").toUpperCase();
-
-        // Prepare fixlist cache
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
-
-        // 1) Top drag (top 3 by impactGap, excluding P0 hard gate if already blocked)
-        if (topDragEl) {
-            const top = fixlistItems
-                .filter((x) => x.gateType === "NONE" && x.impactGap > 0)
-                .slice(0, 3);
-
-            if (!top.length) {
-                topDragEl.innerHTML = `<div class="empty-state">Không có gap đáng kể (hoặc đang bị Gate chặn).</div>`;
-            } else {
-                topDragEl.innerHTML = top.map((x) => {
-                    const gap = Math.round(x.impactGap * 10) / 10;
-                    return `<div class="insight-row">
-                        <div class="kpi-pill">${escapeHtml(x.kpiId)}</div>
-                        <div class="insight-main">
-                          <div class="insight-title">${escapeHtml(x.name || x.kpi_name || "KPI")}</div>
-                          <div class="insight-sub">ImpactGap ≈ <strong>${gap}</strong> (w=${round2(x.weight_final || 0)})</div>
+    <!-- Main Layout -->
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <!-- Tổng quan điểm -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📊</span>
+                    <h3>Tổng quan điểm</h3>
+                </div>
+                <div class="card-body">
+                    <div id="scoreCircle" class="score-circle">
+                        <svg viewBox="0 0 200 200" class="donut-chart">
+                            <circle cx="100" cy="100" r="85" fill="none" stroke="var(--duong-ke)" stroke-width="20" />
+                            <circle id="scoreArc" cx="100" cy="100" r="85" fill="none" stroke="var(--cam)"
+                                stroke-width="20" stroke-linecap="round" transform="rotate(-90 100 100)"
+                                stroke-dasharray="534" stroke-dashoffset="534" />
+                        </svg>
+                        <div class="score-content">
+                            <div class="score-value" id="totalScoreDisplay">--</div>
+                            <div class="score-label">/ 100</div>
                         </div>
-                      </div>`;
-                }).join("");
-            }
-        }
+                    </div>
 
-        // 2) Gate risk
-        if (gateRiskEl) {
-            if (gateStatus === "PASS") {
-                gateRiskEl.innerHTML = `<div class="pill-success">✅ Gate PASS</div>
-                  <div class="muted-small">Điểm MRSM được tính bình thường. Tiếp tục tối ưu KPI theo Fixlist.</div>`;
-            } else if (gateStatus === "G0") {
-                gateRiskEl.innerHTML = `<div class="pill-danger">⛔ Hard KO Failed</div>
-                  <div class="muted-small">MRSM_Final bị chặn (0 điểm). Ưu tiên hoàn thiện hồ sơ Hard KO.</div>`;
-            } else if (gateStatus === "G1") {
-                gateRiskEl.innerHTML = `<div class="pill-warn">⏳ Soft KO Pending</div>
-                  <div class="muted-small">Đang trong 7 ngày khắc phục. Cần PASS để mở tính điểm.</div>`;
-            } else if (gateStatus === "G2") {
-                gateRiskEl.innerHTML = `<div class="pill-danger">⚠️ Soft KO Overdue</div>
-                  <div class="muted-small">Quá hạn khắc phục. Cần xử lý và re-check để PASS.</div>`;
-            } else {
-                gateRiskEl.innerHTML = `<div class="pill-warn">❔ Gate UNKNOWN</div>
-                  <div class="muted-small">Thiếu bằng chứng Gate. Kiểm tra luồng KO_GATE → SOFT_KO.</div>`;
-            }
-        }
+                    <div class="score-story">
+                        <div class="gauge-wrap" aria-label="Gauge điểm tổng">
+                            <svg class="gauge-svg" viewBox="0 0 240 140" role="img" aria-label="Gauge MRSM">
+                                <!-- Track -->
+                                <path d="M20 120 A100 100 0 0 1 220 120" class="gauge-track"></path>
+                                <!-- Segments -->
+                                <path d="M20 120 A100 100 0 0 1 120 20" class="gauge-seg seg-red"></path>
+                                <path d="M120 20 A100 100 0 0 1 190 70" class="gauge-seg seg-orange"></path>
+                                <path d="M190 70 A100 100 0 0 1 220 120" class="gauge-seg seg-green"></path>
 
-        // 3) Coverage
-        if (coverageEl) {
-            const { filled, total } = computeInputCoverage(allKpis);
-            const pct = total ? Math.round((filled / total) * 100) : 0;
-            coverageEl.innerHTML = `<div class="big-number">${pct}%</div>
-              <div class="muted-small">Có dữ liệu: ${filled}/${total} KPI (theo breakdown lưu ở local/Firestore)</div>`;
-        }
+                                <!-- Progress -->
+                                <path id="gaugeProgress" d="M20 120 A100 100 0 0 1 220 120" class="gauge-progress">
+                                </path>
 
-        // 4) Weakest group
-        if (weakestEl) {
-            const groups = (assessmentData?.groups || []).slice().sort((a, b) => a.avgScore - b.avgScore);
-            const w = groups[0];
-            if (!w) {
-                weakestEl.innerHTML = `<div class="empty-state">Chưa có dữ liệu nhóm.</div>`;
-            } else {
-                weakestEl.innerHTML = `<div class="big-number">${w.avgScore}/100</div>
-                  <div class="muted-small">Nhóm yếu nhất: <strong>${escapeHtml(w.name)}</strong> (${w.count} KPI)</div>`;
-            }
-        }
-    }
+                                <!-- Needle -->
+                                <g class="gauge-needle" id="gaugeNeedle" style="transform-origin: 120px 120px;">
+                                    <line x1="120" y1="120" x2="120" y2="36" class="needle-line"></line>
+                                    <circle cx="120" cy="120" r="6" class="needle-hub"></circle>
+                                </g>
 
-    function renderGroupChart() {
-        const root = $("groupChart");
-        if (!root) return;
+                                <!-- Labels -->
+                                <text x="20" y="134" class="gauge-label">0</text>
+                                <text x="120" y="18" class="gauge-label">50</text>
+                                <text x="220" y="134" text-anchor="end" class="gauge-label">100</text>
+                            </svg>
 
-        const groups = (assessmentData?.groups || []);
-        const order = ["Vận hành", "Thương hiệu", "Danh mục", "Quy mô"];
-        const map = {};
-        for (const g of groups) map[normalizeGroupName(g.name)] = g;
-
-        const cols = order.map((name) => {
-            const g = map[name] || { name, avgScore: 0, count: 0 };
-            const h = Math.max(0, Math.min(100, Number(g.avgScore || 0)));
-            const weak = h < 50 ? "weak" : "";
-            return `
-              <div class="gc-col">
-                <div class="gc-track" data-group="${escapeHtml(name)}">
-                  <div class="gc-fill ${weak}" style="--h:${h}%"></div>
+                            <div class="traffic-light" id="trafficLight">
+                                <div class="traffic-dot" id="trafficLightBadge">●</div>
+                                <div class="traffic-text" id="trafficLightText">--</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tier-badge" id="tierBadge">--</div>
+                    <div class="tier-note" id="tierNote">--</div>
                 </div>
-                <div class="gc-sub">${escapeHtml(name)}</div>
-                <div class="gc-h">${h}</div>
-              </div>
-            `;
-        }).join("");
-
-        root.innerHTML = `
-          <div class="gc-wrap">
-            <div class="gc-head">
-              <div class="gc-title">
-                <div class="gc-icon">📊</div>
-                <div>
-                  <div class="gc-h">Điểm theo nhóm</div>
-                  <div class="gc-sub">Tổng hợp trung bình theo trọng số nhóm (0–100)</div>
-                </div>
-              </div>
-              <div class="gc-chips">
-                <span class="gc-chip"><span class="p0"></span> &lt;50</span>
-                <span class="gc-chip"><span class="p1"></span> 50–69</span>
-                <span class="gc-chip"><span class="p2"></span> ≥70</span>
-              </div>
             </div>
 
-            <div class="gc-area">
-              <div class="gc-grid">
-                <div class="gc-gridline"></div>
-                <div class="gc-gridline"></div>
-                <div class="gc-gridline"></div>
-                <div class="gc-gridline"></div>
-              </div>
-              <div class="gc-bars">
-                ${cols}
-              </div>
-              <div class="gc-tooltip" id="gcTooltip"></div>
-            </div>
-          </div>
-        `;
-
-        // hover tooltip
-        const tooltip = $("gcTooltip");
-        root.querySelectorAll(".gc-track").forEach((track) => {
-            const grp = track.getAttribute("data-group");
-            const g = map[grp] || { avgScore: 0, count: 0 };
-            track.addEventListener("mousemove", (e) => {
-                if (!tooltip) return;
-                tooltip.classList.add("show");
-                tooltip.innerHTML = `${escapeHtml(grp)}: <strong>${Math.round(g.avgScore || 0)}/100</strong> <span class="muted">(${g.count} KPI)</span>`;
-                const r = root.getBoundingClientRect();
-                tooltip.style.left = (e.clientX - r.left) + "px";
-                tooltip.style.top = (e.clientY - r.top) + "px";
-            });
-            track.addEventListener("mouseleave", () => { if (tooltip) tooltip.classList.remove("show"); });
-        });
-    }
-
-    function renderParetoChart() {
-        const root = $("paretoChart");
-        if (!root) return;
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
-
-        const top = fixlistItems.filter(x => x.gateType === "NONE" && x.impactGap > 0).slice(0, 5);
-        if (!top.length) {
-            root.innerHTML = `<div class="empty-state">Chưa có dữ liệu Pareto.</div>`;
-            return;
-        }
-        const max = Math.max(...top.map(x => x.impactGap), 1);
-
-        root.innerHTML = `<div class="pareto-wrap">
-          ${top.map((x) => {
-            const w = Math.round((x.impactGap / max) * 100);
-            return `<div class="pareto-row">
-              <div class="pareto-left">
-                <div class="kpi-pill">${escapeHtml(x.kpiId)}</div>
-                <div class="pareto-name">${escapeHtml(x.name || "KPI")}</div>
-              </div>
-              <div class="pareto-bar"><div class="pareto-fill" style="width:${w}%"></div></div>
-              <div class="pareto-val">${round2(x.impactGap)}</div>
-            </div>`;
-        }).join("")}
-        </div>`;
-    }
-
-    function renderDistChart() {
-        const root = $("distChart");
-        if (!root) return;
-        const kpis = allKpis || [];
-        const bins = { "0": 0, "50": 0, "100": 0, "other": 0 };
-        for (const k of kpis) {
-            const s = Math.round(Number(k.score ?? 0));
-            if (s === 0) bins["0"]++;
-            else if (s === 50) bins["50"]++;
-            else if (s === 100) bins["100"]++;
-            else bins["other"]++;
-        }
-        const total = kpis.length || 1;
-        const row = (label, count) => {
-            const w = Math.round((count / total) * 100);
-            return `<div class="dist-row">
-              <div class="dist-label">${label}</div>
-              <div class="dist-bar"><div class="dist-fill" style="width:${w}%"></div></div>
-              <div class="dist-val">${count}</div>
-            </div>`;
-        };
-        root.innerHTML = `<div class="dist-wrap">
-          ${row("0 điểm", bins["0"])}
-          ${row("50 điểm", bins["50"])}
-          ${row("100 điểm", bins["100"])}
-          ${row("Khác", bins["other"])}
-          <div class="legend-note">Phân bố điểm theo breakdown (0/50/100/khác).</div>
-        </div>`;
-    }
-
-    function renderPriorityMap() {
-        const root = $("priorityMap");
-        if (!root) return;
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
-
-        const pts = fixlistItems
-            .filter(x => x.gateType === "NONE" && x.impactGap > 0)
-            .slice(0, 20);
-
-        if (!pts.length) {
-            root.innerHTML = `<div class="empty-state">Chưa có dữ liệu Priority Map.</div>`;
-            return;
-        }
-
-        const W = 520, H = 220, pad = 30;
-        const maxImpact = Math.max(...pts.map(p => p.impactGap), 1);
-        const maxEffort = Math.max(...pts.map(p => p.effort), 10);
-
-        const sx = (e) => pad + (Math.min(maxEffort, Math.max(0, e)) / maxEffort) * (W - 2 * pad);
-        const sy = (i) => (H - pad) - (Math.min(maxImpact, Math.max(0, i)) / maxImpact) * (H - 2 * pad);
-
-        const circles = pts.map((p) => {
-            const cx = sx(p.effort), cy = sy(p.impactGap);
-            const lbl = `${p.kpiId}`;
-            const color = p.priority === "P1" ? "var(--cam)" : "var(--xanh)";
-            const r = p.priority === "P1" ? 7 : 6;
-            return `<g class="pm-pt" data-id="${escapeHtml(p.kpiId)}">
-              <circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" opacity="0.9"></circle>
-              <text x="${cx + 10}" y="${cy + 4}" font-size="11" fill="var(--chu)">${escapeHtml(lbl)}</text>
-            </g>`;
-        }).join("");
-
-        root.innerHTML = `
-          <svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" role="img" aria-label="Priority map">
-            <line x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" stroke="var(--duong-ke)"/>
-            <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${H - pad}" stroke="var(--duong-ke)"/>
-            <text x="${W / 2}" y="${H - 6}" text-anchor="middle" font-size="11" fill="var(--chu-phu)">Effort →</text>
-            <text x="10" y="${H / 2}" transform="rotate(-90 10 ${H / 2})" text-anchor="middle" font-size="11" fill="var(--chu-phu)">Impact ↑</text>
-            ${circles}
-          </svg>
-          <div class="legend-note">Ưu tiên: Impact cao + Effort thấp nằm góc trên-trái.</div>
-        `;
-    }
-
-    function renderTrend() {
-        const root = $("trendChart");
-        const list = $("trendList");
-        if (!root && !list) return;
-
-        // Best-effort: read history list
-        const raw = localStorage.getItem("assessment_history");
-        const hist = safeJsonParse(raw) || [];
-
-        if (!hist.length) {
-            if (root) root.innerHTML = `<div class="empty-state">Chưa có lịch sử. (Tuỳ chọn) Lưu mỗi lần chấm để thấy xu hướng.</div>`;
-            if (list) list.innerHTML = `<div class="empty-state">—</div>`;
-            return;
-        }
-
-        // Take last 8
-        const last = hist.slice(-8);
-        const W = 520, H = 220, pad = 28;
-        const maxS = 100, minS = 0;
-
-        const sx = (i) => pad + (i / (last.length - 1)) * (W - 2 * pad);
-        const sy = (s) => (H - pad) - ((Math.max(minS, Math.min(maxS, s)) - minS) / (maxS - minS)) * (H - 2 * pad);
-
-        const pts = last.map((x, i) => `${sx(i)},${sy(Number(x.score ?? 0))}`).join(" ");
-        root.innerHTML = `
-          <svg viewBox="0 0 ${W} ${H}" width="100%" height="100%" role="img" aria-label="Trend chart">
-            <line x1="${pad}" y1="${H - pad}" x2="${W - pad}" y2="${H - pad}" stroke="var(--duong-ke)"/>
-            <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${H - pad}" stroke="var(--duong-ke)"/>
-            <polyline points="${pts}" fill="none" stroke="var(--xanh)" stroke-width="2.5" />
-            ${last.map((x, i) => `<circle cx="${sx(i)}" cy="${sy(Number(x.score ?? 0))}" r="4" fill="var(--xanh)" />`).join("")}
-          </svg>
-        `;
-
-        if (list) {
-            list.innerHTML = last.slice().reverse().map((x) => {
-                return `<div class="trend-item">
-                  <div class="trend-date">${escapeHtml(formatDateTime(x.at))}</div>
-                  <div class="trend-score"><strong>${Math.round(Number(x.score ?? 0))}</strong>/100</div>
-                </div>`;
-            }).join("");
-        }
-    }
-
-    function renderFixlist() {
-        const root = $("fixlist");
-        if (!root) return;
-        if (!fixlistItems || !fixlistItems.length) fixlistItems = buildFixlist(allKpis);
-
-        const gateStatus = (assessmentData?.gate?.status || "UNKNOWN").toUpperCase();
-
-        // If gate blocked: show P0 first, else show top by impact gap
-        let list = [];
-        if (gateStatus !== "PASS") {
-            list = fixlistItems.filter(x => x.gateType !== "NONE").slice(0, 6);
-        } else {
-            list = fixlistItems.filter(x => x.gateType === "NONE" && x.impactGap > 0).slice(0, 8);
-        }
-
-        if (!list.length) {
-            root.innerHTML = `<div class="empty-state">Không có đề xuất ưu tiên.</div>`;
-            return;
-        }
-
-        root.innerHTML = list.map((x) => {
-            const pr = x.priority || "P3";
-            const tagCls = pr === "P0" ? "p0" : pr === "P1" ? "p1" : pr === "P2" ? "p2" : "p3";
-            const deadline = x.deadline ? `<div class="fixlist-deadline">Due: ${escapeHtml(x.deadline)}</div>` : "";
-            const gap = round2(x.impactGap || 0);
-            return `<div class="fixlist-item" data-kpi="${escapeHtml(x.kpiId)}">
-              <div class="fixlist-left">
-                <div class="fixlist-title">${escapeHtml(x.name || x.kpiId)}</div>
-                <div class="fixlist-meta">
-                  <span class="kpi-pill">${escapeHtml(x.kpiId)}</span>
-                  <span class="tag ${tagCls}">${escapeHtml(pr)}</span>
-                  <span class="muted-small">ImpactGap: ${gap}</span>
+            <!-- Trạng thái Gate -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">🔐</span>
+                    <h3>Trạng thái Gate</h3>
                 </div>
-                ${deadline}
-              </div>
-              <div class="fixlist-action">Xem</div>
-            </div>`;
-        }).join("");
+                <div class="card-body">
+                    <div id="gateStatus" class="gate-status">
+                        <div class="gate-badge">--</div>
+                        <p class="gate-description">--</p>
+                    </div>
+                </div>
+            </div>
 
-        root.querySelectorAll(".fixlist-item").forEach((el) => {
-            el.addEventListener("click", () => {
-                const id = el.getAttribute("data-kpi");
-                openKpiModal(id);
-            });
-        });
-    }
+            <!-- Thông tin đánh giá -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">ℹ️</span>
+                    <h3>Thông tin đánh giá</h3>
+                </div>
+                <div class="card-body">
+                    <div class="info-list">
+                        <div class="info-item">
+                            <span class="info-label">Cửa hàng:</span>
+                            <span class="info-value" id="shopName">--</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Shop ID:</span>
+                            <span class="info-value mono" id="shopId">--</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Thời điểm:</span>
+                            <span class="info-value mono" id="computedAt">--</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Assessment ID:</span>
+                            <span class="info-value mono" id="assessmentId">--</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Xu hướng:</span>
+                            <span class="info-value" id="trendDisplay">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
-    function renderKpiTable() {
-        const tbody = $("kpiTableBody");
-        const cards = $("kpiCards");
-        if (!tbody && !cards) return;
-
-        const search = ($("searchKPI")?.value || "").trim().toLowerCase();
-        const groupFilter = ($("filterGroup")?.value || "").trim();
-
-        // Sort by impact gap descending by default
-        const items = (allKpis || []).slice();
-
-        // Add computed fields
-        items.forEach((k) => {
-            const kpiId = normalizeKpiId(k);
-            k.kpiId = kpiId;
-            k.impactGap = calcImpactGap(k);
-            k.priority = priorityOf(kpiId, k, Infinity);
-        });
-
-        items.sort((a, b) => (b.impactGap || 0) - (a.impactGap || 0));
-
-        const filtered = items.filter((k) => {
-            if (groupFilter && normalizeGroupName(k.group) !== normalizeGroupName(groupFilter)) return false;
-            if (!search) return true;
-            const hay = `${k.kpiId} ${k.name || ""} ${k.group || ""}`.toLowerCase();
-            return hay.includes(search);
-        });
-
-        // Table
-        if (tbody) {
-            tbody.innerHTML = filtered.map((k) => {
-                const score = Math.round(Number(k.score ?? 0));
-                const w = round2(Number(k.weight_final ?? 0));
-                const imp = round2(Number(k.impactGap ?? 0));
-                const pr = k.priority || "P3";
-                const tagCls = pr === "P0" ? "p0" : pr === "P1" ? "p1" : pr === "P2" ? "p2" : "p3";
-                return `<tr data-kpi="${escapeHtml(k.kpiId)}">
-                  <td><span class="kpi-pill">${escapeHtml(k.kpiId)}</span></td>
-                  <td>${escapeHtml(k.name || "")}</td>
-                  <td><span class="tag ${tagCls}">${escapeHtml(pr)}</span></td>
-                  <td>${escapeHtml(normalizeGroupName(k.group) || "")}</td>
-                  <td>${score}</td>
-                  <td>${w}</td>
-                  <td>${imp}</td>
-                </tr>`;
-            }).join("");
-
-            tbody.querySelectorAll("tr").forEach((tr) => {
-                tr.addEventListener("click", () => openKpiModal(tr.getAttribute("data-kpi")));
-            });
-        }
-
-        // Cards (mobile)
-        if (cards) {
-            cards.innerHTML = filtered.slice(0, 40).map((k) => {
-                const score = Math.round(Number(k.score ?? 0));
-                const imp = round2(Number(k.impactGap ?? 0));
-                const pr = k.priority || "P3";
-                const tagCls = pr === "P0" ? "p0" : pr === "P1" ? "p1" : pr === "P2" ? "p2" : "p3";
-                return `<div class="kpi-card-mini" data-kpi="${escapeHtml(k.kpiId)}">
-                  <div class="top">
-                    <div class="kpi-pill">${escapeHtml(k.kpiId)}</div>
-                    <div class="tag ${tagCls}">${escapeHtml(pr)}</div>
-                  </div>
-                  <div class="name">${escapeHtml(k.name || "")}</div>
-                  <div class="meta">
-                    <span>${escapeHtml(normalizeGroupName(k.group) || "")}</span>
-                    <span>Score: <strong>${score}</strong></span>
-                    <span>ImpactGap: <strong>${imp}</strong></span>
-                  </div>
-                </div>`;
-            }).join("");
-
-            cards.querySelectorAll(".kpi-card-mini").forEach((c) => {
-                c.addEventListener("click", () => openKpiModal(c.getAttribute("data-kpi")));
-            });
-        }
-    }
-
-    function bindDashboardControls() {
-        if (_controlsBound) return;
-        _controlsBound = true;
-
-        // =====================================================
-        // Header navigation (Result / KPI Scoring)
-        // - Back to RESULTS opens the same assessment_id
-        // - Back to KPI_SCORING restores draft (restore_draft=1)
-        // =====================================================
-        const getAid = () => {
-            try {
-                const qs = new URL(window.location.href).searchParams;
-                const q = (qs.get("assessment_id") || "").trim();
-                if (q) return q;
-            } catch (_) { }
-            return (
-                sessionStorage.getItem("current_assessment_id") ||
-                localStorage.getItem("current_assessment_id") ||
-                ""
-            );
-        };
-
-        // =====================================================
-        // Draft migration helper
-        // -----------------------------------------------------
-        // KPI_SCORING uses a scoped draft key:
-        //   SMROS_KPI_DRAFT_V1__<uid>__<shopId>__<assessment_id>
-        // If a user started filling KPI_SCORING without an assessment_id
-        // (common when coming from SOFT_KO), the draft was stored under
-        // "__no_assessment". Later, when an assessment_id exists, navigating
-        // back with restore_draft=1 would show a blank form because the draft
-        // key no longer matches.
-        //
-        // Fix: when we DO have an assessment_id, opportunistically migrate
-        // any existing "no_assessment" draft to the current assessment scope.
-        // =====================================================
-        const KPI_DRAFT_PREFIX = "SMROS_KPI_DRAFT_V1";
-        const KPI_COMPLETED_PREFIX = "SMROS_KPI_COMPLETED_V1";
-
-        const getScopeIdentity = () => {
-            const uid = window._auth?.currentUser?.uid || localStorage.getItem("smros_uid") || "anon";
-            let shopId = "unknown";
-            try {
-                const shop = JSON.parse(localStorage.getItem("shop_info") || "{}");
-                shopId = shop.shop_id || shop.shopId || shopId;
-            } catch (_) { }
-            return { uid, shopId };
-        };
-
-        const makeScopedKey = (prefix, uid, shopId, aid) => `${prefix}__${uid}__${shopId}__${aid}`;
-
-        const migrateKpiDraftIfNeeded = (aid) => {
-            try {
-                if (!aid) return;
-                const { uid, shopId } = getScopeIdentity();
-                const srcDraftKey = makeScopedKey(KPI_DRAFT_PREFIX, uid, shopId, "no_assessment");
-                const dstDraftKey = makeScopedKey(KPI_DRAFT_PREFIX, uid, shopId, aid);
-                const srcCompletedKey = makeScopedKey(KPI_COMPLETED_PREFIX, uid, shopId, "no_assessment");
-                const dstCompletedKey = makeScopedKey(KPI_COMPLETED_PREFIX, uid, shopId, aid);
-
-                const srcDraft = localStorage.getItem(srcDraftKey);
-                if (srcDraft && !localStorage.getItem(dstDraftKey)) {
-                    localStorage.setItem(dstDraftKey, srcDraft);
-                }
-
-                const srcCompleted = localStorage.getItem(srcCompletedKey);
-                if (srcCompleted && !localStorage.getItem(dstCompletedKey)) {
-                    localStorage.setItem(dstCompletedKey, srcCompleted);
-                }
-            } catch (_) { }
-        };
-
-        const goto = (page, params = {}) => {
-            const u = new URL(page, window.location.href);
-            const aid = getAid();
-            if (aid) u.searchParams.set("assessment_id", aid);
-            Object.entries(params).forEach(([k, v]) => {
-                if (v === undefined || v === null) return;
-                u.searchParams.set(k, String(v));
-            });
-            window.location.href = u.toString();
-        };
-
-        const btnBackToResult = document.getElementById("btnBackToResult");
-        if (btnBackToResult) {
-            btnBackToResult.addEventListener("click", () => {
-                // Always go to the scored result page of the same assessment
-                goto("RESULTS.html");
-            });
-        }
-
-        const btnBackToKPI = document.getElementById("btnBackToKPI");
-        if (btnBackToKPI) {
-            btnBackToKPI.addEventListener("click", () => {
-                // Ensure we keep the same assessment scope
-                const aid = getAid();
-                if (aid) {
-                    try { sessionStorage.setItem("current_assessment_id", aid); } catch (_) { }
-                    try { localStorage.setItem("current_assessment_id", aid); } catch (_) { }
-                    migrateKpiDraftIfNeeded(aid);
-                }
-
-                // Restore draft so user sees the filled inputs (not blank)
-                goto("KPI_SCORING.html", { restore_draft: 1 });
-            });
-        }
-
-        const search = $("searchKPI");
-        const filter = $("filterGroup");
-        if (search) search.addEventListener("input", () => renderKpiTable());
-        if (filter) filter.addEventListener("change", () => renderKpiTable());
-
-        // Export JSON
-        const btn = $("exportJSON");
-        if (btn) {
-            btn.addEventListener("click", () => {
-                try {
-                    const blob = new Blob([JSON.stringify(assessmentData, null, 2)], { type: "application/json" });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `assessment_${assessmentData?.assessmentId || "local"}.json`;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    URL.revokeObjectURL(url);
-                } catch (e) {
-                    console.warn("Export failed", e);
-                }
-            });
-        }
-
-        // Modal close
-        const modal = $("kpiModal");
-        const close = $("modalClose");
-        if (close && modal) close.addEventListener("click", () => modal.classList.remove("active"));
-        if (modal) {
-            modal.addEventListener("click", (e) => {
-                if (e.target === modal) modal.classList.remove("active");
-            });
-        }
-
-        // Fixlist click is bound in renderFixlist
-    }
-
-    function openKpiModal(kpiId) {
-        if (!kpiId) return;
-        kpiId = normalizeKpiId(kpiId);
-
-        const modal = $("kpiModal");
-        const titleEl = $("modalTitle");
-        const body = $("modalBody");
-        if (!modal || !titleEl || !body) return;
-
-        const item =
-            (allKpis || []).find((x) => normalizeKpiId(x) === kpiId) ||
-            (Array.isArray(fixlistItems) ? fixlistItems.find((x) => normalizeKpiId(x) === kpiId || x.kpiId === kpiId) : null);
-
-        if (!item) return;
-
-        const rec = getRecommendation(kpiId);
-
-        const groupName = normalizeGroupName(item.group) || groupOf(kpiId);
-        const score = Number(item.score ?? 0);
-        const weight = round2(Number(item.weight_final ?? item.weight ?? 0));
-        const impactGap = round2(Number(calcImpactGap(item) ?? 0));
-        const v = (item?.value ?? item?.raw_value ?? item?.val ?? item?.meta?.value ?? item?.meta?.input_value);
-
-        const st = scoreStatus(score);
-        const target = buildTargetText(kpiId);
-
-        // Auto-fix insight text so it matches actual score (tránh "đạt mà bảo chưa đạt")
-        const insight = (rec && rec.insight && typeof rec.insight === "object") ? { ...rec.insight } : {};
-        if (!String(insight.hien_tai || "").trim()) {
-            insight.hien_tai = (v === null || v === undefined || v === "")
-                ? `Score ${Math.round(score)}`
-                : `Giá trị: ${formatValue(v)} (Score ${Math.round(score)})`;
-        }
-        if (!String(insight.muc_tieu || "").trim()) {
-            insight.muc_tieu = target || "—";
-        }
-        if (st.key === "PASS") {
-            insight.danh_gia = "KPI đã đạt theo kết quả chấm điểm. Ưu tiên duy trì và chuẩn hóa quy trình để tránh regress.";
-        } else if (st.key === "PARTIAL") {
-            insight.danh_gia = "KPI tiệm cận mục tiêu (50 điểm). Ưu tiên hành động nâng lên 100 điểm.";
-        } else {
-            insight.danh_gia = insight.danh_gia || "KPI chưa đạt. Cần khắc phục theo gợi ý.";
-        }
-
-        const gateType = detectGateType(kpiId, item);
-        const gateBadge =
-            gateType === "HARD_KO" ? `<span class="gate-tag hard">🚫 Hard KO</span>` :
-                gateType === "SOFT_KO" ? `<span class="gate-tag soft">⏳ Soft KO</span>` :
-                    "";
-
-        const pri = Array.isArray(rec?.hanh_dong_uu_tien) ? rec.hanh_dong_uu_tien : [];
-        const fix = Array.isArray(rec?.hanh_dong_khac_phuc) ? rec.hanh_dong_khac_phuc : [];
-
-        const toText = (x) => {
-            if (x == null) return "";
-            if (typeof x === "string") return x;
-            if (typeof x === "number") return String(x);
-            if (typeof x === "object") return x.viec || x.text || x.noi_dung || x.title || JSON.stringify(x);
-            return String(x);
-        };
-
-        const listHTML = (arr) => {
-            const items = (arr || []).map((h) => {
-                const main = toText(h);
-                const extra = (h && typeof h === "object")
-                    ? (h.chi_tiet_thuc_te || h.muc_tieu_ngan_han || h.thoi_gian || h.bo_phan || h.tac_dong_ky_vong || "")
-                    : "";
-                return main
-                    ? `<li><div class="rec-main">${escapeHtml(main)}</div>${extra ? `<div class="rec-sub">${escapeHtml(extra)}</div>` : ""}</li>`
-                    : "";
-            }).filter(Boolean);
-
-            return items.length ? `<ul class="rec-list">${items.join("")}</ul>` : "";
-        };
-
-        titleEl.textContent = `${kpiId} — ${item.name || item.title || "KPI"}`;
-
-        body.innerHTML = `
-      <div class="rec-modal-head">
-        <div>
-          <div class="rec-modal-sub">
-            <span>Nhóm: <b>${escapeHtml(groupName)}</b></span>
-            <span>•</span>
-            <span>Trọng số: <b>${(weight * 100).toFixed(0)}%</b></span>
-            <span>•</span>
-            <span>Impact Gap: <b>${impactGap}</b></span>
-            ${gateBadge ? `<span>•</span>${gateBadge}` : ""}
-          </div>
-        </div>
-        <div class="status-chip ${st.cls}">${st.label}</div>
-      </div>
-
-      <div class="rec-summary">${escapeHtml(st.desc)}</div>
-
-      <div class="rec-metrics">
-        <div class="rec-metric">
-          <div class="k">Điểm</div>
-          <div class="v">${Math.round(score)}</div>
-        </div>
-        <div class="rec-metric">
-          <div class="k">Giá trị hiện tại</div>
-          <div class="v">${escapeHtml(formatValue(v))}</div>
-        </div>
-        <div class="rec-metric">
-          <div class="k">Mục tiêu</div>
-          <div class="v">${escapeHtml(insight.muc_tieu || "—")}</div>
-        </div>
-      </div>
-
-      <div class="recommendation-box info">
-        <h5>📌 Insight</h5>
-        <ul>
-          <li><b>Hiện tại:</b> ${escapeHtml(toText(insight.hien_tai) || "—")}</li>
-          <li><b>Mục tiêu:</b> ${escapeHtml(toText(insight.muc_tieu) || "—")}</li>
-          <li><b>Đánh giá:</b> ${escapeHtml(toText(insight.danh_gia) || "—")}</li>
-        </ul>
-      </div>
-
-      ${(() => {
-                const priTitle = (st.key === "PASS") ? "🎯 Gợi ý duy trì / tối ưu" : "✅ Hành động ưu tiên";
-                const priList = listHTML(pri);
-                if (!priList) return "";
-                return `<div class="recommendation-box"><h5>${priTitle}</h5>${priList}</div>`;
-            })()}
-
-      ${(() => {
-                const fixTitle = (st.key === "PASS") ? "🛠️ Nếu KPI có dấu hiệu giảm" : "🛠️ Hành động khắc phục";
-                const fixList = listHTML(fix);
-                if (!fixList) return "";
-                return `<div class="recommendation-box warn"><h5>${fixTitle}</h5>${fixList}</div>`;
-            })()}
-
-      ${(!rec && st.key === "PASS") ? `
-        <div class="recommendation-box ok">
-          <h5>✅ KPI đã đạt — gợi ý duy trì</h5>
-          <ul class="rec-list">
-            <li><div class="rec-main">Duy trì quy trình hiện tại và theo dõi KPI hàng tuần.</div></li>
-            <li><div class="rec-main">Thiết lập cảnh báo khi KPI có xu hướng giảm.</div></li>
-            <li><div class="rec-main">Chuẩn hóa SOP để tránh regress khi thay đổi nhân sự/quy trình.</div></li>
-          </ul>
-        </div>` : ""}
-
-    `;
-
-        modal.classList.add("active");
-    }
-
-    function showEmptyState() {
-        setLoading(false);
-        document.body.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--nen);">
-        <div style="text-align:center;padding:40px;max-width:520px;">
-          <div style="font-size:64px;margin-bottom:20px;">📊</div>
-          <h2 style="font-size:24px;font-weight:700;color:var(--chu);margin-bottom:12px;">Chưa có dữ liệu chấm điểm</h2>
-          <p style="font-size:16px;color:var(--chu-phu);margin-bottom:24px;">
-            Bạn có thể xem trạng thái Gate ở SOFT_KO, và thực hiện chấm KPI để có Dashboard đầy đủ.
-          </p>
-          <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
-            <button onclick="window.location.href='./SOFT_KO.html'"
-              style="padding:14px 22px;background:var(--canh-bao);color:var(--trang);border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">
-              Về Soft KO
+            <!-- Nút xuất kết quả -->
+            <button class="btn-export" id="btnExportJSON">
+                <span>⬇️</span>
+                <span>Xuất kết quả (JSON)</span>
             </button>
-            <button onclick="window.location.href='./KPI_SCORING.html'"
-              style="padding:14px 22px;background:var(--cam);color:var(--trang);border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">
-              Chấm điểm KPI
-            </button>
-          </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Cảnh báo Gate (nếu bị chặn) -->
+            <div id="gateWarning" class="alert alert-danger" style="display: none;">
+                <div class="alert-icon">⛔</div>
+                <div class="alert-content">
+                    <h4>Bị chặn bởi điều kiện</h4>
+                    <p id="gateWarningText">--</p>
+                </div>
+            </div>
+
+            <!-- Insight Cards (BI-style quick read) -->
+            <section class="insight-grid" aria-label="Insight snapshot">
+                <div class="insight-card insight-card--top" id="insightTopDrag">
+                    <div class="insight-head">
+                        <div class="insight-title">🚨 Top KPI kéo tụt readiness</div>
+                        <div class="insight-sub">Top 3 theo ImpactGap</div>
+                    </div>
+                    <div class="insight-body" id="insightTopDragBody">
+                        <div class="insight-skeleton">Đang tải…</div>
+                    </div>
+                </div>
+
+                <div class="insight-card insight-card--risk" id="insightGateRisk">
+                    <div class="insight-head">
+                        <div class="insight-title">⚠️ Gate Risk</div>
+                        <div class="insight-sub">Trạng thái điều kiện</div>
+                    </div>
+                    <div class="insight-body" id="insightGateRiskBody">
+                        <div class="insight-skeleton">Đang tải…</div>
+                    </div>
+                </div>
+                <div class="insight-card insight-card--kpi" id="insightCoverage">
+                    <div class="insight-head">
+                        <div class="insight-title">🧾 KPI Coverage</div>
+                        <div class="insight-sub">Độ đầy đủ dữ liệu</div>
+                    </div>
+                    <div class="insight-body" id="insightCoverageBody">
+                        <div class="insight-skeleton">Đang tải…</div>
+                    </div>
+                </div>
+
+                <div class="insight-card insight-card--weak" id="insightWeakestGroup">
+                    <div class="insight-head">
+                        <div class="insight-title">📉 Nhóm yếu nhất</div>
+                        <div class="insight-sub">So sánh điểm 4 nhóm</div>
+                    </div>
+                    <div class="insight-body" id="insightWeakestGroupBody">
+                        <div class="insight-skeleton">Đang tải…</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Điểm theo nhóm -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📈</span>
+                    <h3>Điểm theo 4 nhóm tiêu chí</h3>
+                </div>
+                <div class="card-body">
+                    <div id="groupChart" class="group-chart">
+                        <!-- SVG bars sẽ được tạo bởi JS -->
+                    </div>
+                </div>
+            </div>
+            <!-- Pareto ImpactGap -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📌</span>
+                    <h3>Pareto – Top KPI kéo tụt Readiness</h3>
+                </div>
+                <div class="card-body">
+                    <div id="paretoChart" class="trend-chart"><!-- SVG will be injected --></div>
+                </div>
+            </div>
+
+            <!-- Score Distribution -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">🧮</span>
+                    <h3>Phân bố điểm KPI (0/50/100)</h3>
+                </div>
+                <div class="card-body">
+                    <div id="distChart" class="trend-chart"><!-- SVG will be injected --></div>
+                </div>
+            </div>
+            <!-- Priority Map: Impact x Effort -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">🗺️</span>
+                    <h3>Priority Map (Impact × Effort)</h3>
+                </div>
+                <div class="card-body">
+                    <div class="priority-map-wrap">
+                        <div class="priority-map" id="priorityMap" aria-label="Priority map scatter">
+                            <!-- SVG scatter sẽ được tạo bởi JS -->
+                        </div>
+                        <div class="priority-legend">
+                            <div class="legend-row"><span class="legend-dot p0"></span> P0 – Gate</div>
+                            <div class="legend-row"><span class="legend-dot p1"></span> P1 – Top 20% ImpactGap</div>
+                            <div class="legend-row"><span class="legend-dot p2"></span> P2 – Others</div>
+                            <div class="legend-note">Click dot để xem Recommendation</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Xu hướng điểm -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📉</span>
+                    <h3>Xu hướng điểm qua các lần đánh giá</h3>
+                </div>
+                <div class="card-body">
+                    <div id="trendChart" class="trend-chart">
+                        <!-- SVG line chart hoặc empty state -->
+                    </div>
+                    <div id="trendList" class="trend-list"></div>
+
+                </div>
+            </div>
+
+            <!-- Danh sách ưu tiên khắc phục -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">🛠️</span>
+                    <h3>Danh sách ưu tiên khắc phục (Fixlist)</h3>
+                </div>
+                <div class="card-body">
+                    <div id="fixlist" class="fixlist">
+                        <!-- Danh sách fixlist -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bảng KPI chi tiết -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📋</span>
+                    <h3>Bảng KPI chi tiết</h3>
+                </div>
+                <div class="card-body">
+                    <!-- Toolbar -->
+                    <div class="table-toolbar">
+                        <div class="search-box">
+                            <span class="search-icon">🔍</span>
+                            <input type="text" id="searchKPI" placeholder="Tìm kiếm theo mã hoặc tên KPI...">
+                        </div>
+                        <div class="filter-group">
+                            <label>Nhóm:</label>
+                            <select id="filterGroup">
+                                <option value="">Tất cả</option>
+                                <option value="Vận hành">Vận hành</option>
+                                <option value="Thương hiệu">Thương hiệu</option>
+                                <option value="Danh mục">Danh mục</option>
+                                <option value="Quy mô">Quy mô</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Table -->
+                    <div class="table-container">
+                        <table class="kpi-table" id="kpiTable">
+                            <thead>
+                                <tr>
+                                    <th>Mã KPI</th>
+                                    <th>Tên chỉ số</th>
+                                    <th>Nhóm</th>
+                                    <th>Điểm</th>
+                                    <th class="sortable" data-sort="impact">
+                                        Mức ảnh hưởng
+                                        <span class="sort-icon">⇅</span>
+                                    </th>
+                                    <th>Recommendation</th>
+                                </tr>
+                            </thead>
+                            <tbody id="kpiTableBody">
+                                <!-- Rows sẽ được tạo bởi JS -->
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Mobile card list (ẩn trên desktop) -->
+                    <div class="kpi-cards" id="kpiCards">
+                        <!-- Cards sẽ được tạo bởi JS cho mobile -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal chi tiết KPI -->
+    <div id="kpiModal" class="modal">
+        <div class="modal-overlay"></div>
+        <div class="modal-panel">
+            <div class="modal-header">
+                <h3 id="modalTitle">Chi tiết KPI</h3>
+                <button class="modal-close" id="modalClose">✕</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Nội dung chi tiết KPI -->
+            </div>
         </div>
-      </div>
-    `;
-    }
+    </div>
+    <!-- 1️⃣ Firebase core init: khởi tạo Firebase (Auth, Firestore) -->
+    <script type="module" src="./firebase-init.js"></script>
 
-    // ========================
-    // Utils
-    // ========================
-    function escapeHtml(text) {
-        if (text == null) return "";
-        const div = document.createElement("div");
-        div.textContent = String(text);
-        return div.innerHTML;
-    }
+    <!-- 2️⃣ Auth guard: kiểm tra đăng nhập trước khi load dữ liệu -->
+    <script type="module" src="./auth-guard.js"></script>
 
-    function formatDateTime(dt) {
-        if (!dt) return "N/A";
-        try {
-            const d = new Date(dt);
-            if (isNaN(d)) return String(dt);
-            return d.toLocaleString("vi-VN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
-        } catch {
-            return String(dt);
-        }
-    }
-})();
+    <!-- 3️⃣ Firestore dashboard init (chỉ gọi 1 lần): prefetch dữ liệu dashboard -->
+    <script type="module">
+        import { initFirestoreDashboardPrefetch } from "./firestore-dashboard.js";
+
+        initFirestoreDashboardPrefetch({
+            limit: 20,              // số bản ghi load ban đầu
+            forceModeLocal: true    // bật khi dev / demo / mock offline
+        });
+    </script>
+
+    <!-- 4️⃣ MRSM config (SSOT) -->
+    <script src="./mrsm_config.js"></script>
+    <script src="./analysis_engine.js"></script>
+
+
+    <!-- 5️⃣ Gate Guard (phụ thuộc MRSM_CONFIG) -->
+    <script src="./gate-guard.js"></script>
+
+    <!-- 6️⃣ Recommendations (có thể dùng config / meta) -->
+    <script src="./recommendation.js"></script>
+
+
+    <!-- 7️⃣ Dashboard UI logic -->
+    <script src="./dashboard_navfix.js"></script>
+
+
+
+</body>
+
+</html>
