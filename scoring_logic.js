@@ -661,12 +661,12 @@ function updateReviewStep() {
   const allDone = KPI_ORDER.every((id) => isFilledStrict(id));
   if (!allDone) { content.innerHTML = ""; return; }
 
-  const groups = [
-    { key: "Vận hành", title: "Nhóm Vận hành", cls: "review-card--blue", icon: "⚙️" },
-    { key: "Thương hiệu", title: "Nhóm Thương hiệu", cls: "review-card--purple", icon: "💎" },
-    { key: "Danh mục", title: "Nhóm Danh mục", cls: "review-card--emerald", icon: "🧾" },
-    { key: "Quy mô", title: "Nhóm Quy mô", cls: "review-card--amber", icon: "📈" },
-  ];
+const groups = [
+  { key: "Operation", title: "Nhóm Vận hành", cls: "review-card--blue", icon: "⚙️" },
+  { key: "Brand", title: "Nhóm Thương hiệu", cls: "review-card--purple", icon: "💎" },
+  { key: "Category", title: "Nhóm Danh mục", cls: "review-card--emerald", icon: "🧾" },
+  { key: "Scale", title: "Nhóm Quy mô", cls: "review-card--amber", icon: "📈" },
+];
 
   const byGroup = {};
   groups.forEach((g) => byGroup[g.key] = []);
@@ -1136,3 +1136,4 @@ document.addEventListener("DOMContentLoaded", () => {
   bindEvents();
   injectRestoreDraftButton();
 });
+
