@@ -455,13 +455,13 @@ function getWeightEffectiveFromConfig(ruleId) {
 function getWeightEffectiveFromBackup(ruleId, fallbackLen) {
   // Backup weights (same set as scoring_logic fallback) — used when MRSM_CONFIG isn't ready
   const W = {
-    "OP-01": 0.08, "OP-02": 0.08, "OP-03": 0.05, "OP-04": 0.05,
-    "CS-01": 0.08, "CS-02": 0.04,
-    "PEN-01": 0.08,
-    "CO-01": 0.04, "CO-02": 0.05,
-    "BR-01": 0.05, "BR-02": 0.05, "BR-03": 0.05,
-    "CAT-01": 0.05, "CAT-02": 0.05, "CAT-03": 0.10, "CAT-04": 0.05,
-    "SC-01": 0.04, "SC-02": 0.04, "SC-03": 0.02,
+    "OP-01": 0.051801801802, "OP-02": 0.051801801802, "OP-03": 0.051801801802, "OP-04": 0.051801801802,
+    "CS-01": 0.04954954955, "CS-02": 0.04954954955,
+    "PEN-01": 0.072072072072,
+    "CO-01": 0.04954954955, "CO-02": 0.072072072072,
+    "BR-01": 0.062857142857, "BR-02": 0.068571428571, "BR-03": 0.068571428571,
+    "CAT-01": 0.016836734694, "CAT-02": 0.033673469388, "CAT-03": 0.050510204082, "CAT-04": 0.048979591837,
+    "SC-01": 0.039130434783, "SC-02": 0.075, "SC-03": 0.035869565217,
   };
   const sum = Object.values(W).reduce((s, v) => s + Number(v || 0), 0) || 1;
   const w = Number(W[String(ruleId || "").toUpperCase()] || 0);
