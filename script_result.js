@@ -106,6 +106,69 @@ function syncDashboardLinks(assessmentId) {
 
 
 /* ============================================================
+   ✅ Draft migration helper (RESULTS -> KPI_SCORING resume)
+   - If KPI draft was saved under "no_assessment" (from Soft_KO flow),
+     copy it into the scoped key for current assessment_id before redirect.
+   - This does NOT affect Soft_KO -> KPI_SCORING (still blank, no restore param there).
+============================================================ */
+const __KPI_DRAFT_KEY = "SMROS_KPI_DRAFT_V1";
+const __KPI_COMPLETED_KEY = "SMROS_KPI_COMPLETED_V1";
+
+function _getScopedKey(prefix, assessmentId) {
+  const uid = window._auth?.currentUser?.uid || localStorage.getItem("smros_uid") || "anon";
+  let shopId = "unknown";
+  try {
+    const shop = _safeParseJsonLite(localStorage.getItem("shop_info") || "{}") || {};
+    shopId = shop.shop_id || shop.shopId || shopId;
+  } catch (_) { }
+  const aid = assessmentId || "no_assessment";
+  return `${prefix}__${uid}__${shopId}__${aid}`;
+}
+
+function _migrateDraftIfNeeded(assessmentId) {
+  try {
+    if (!assessmentId) return;
+
+    const dstDraftKey = _getScopedKey(__KPI_DRAFT_KEY, assessmentId);
+    const dstCompletedKey = _getScopedKey(__KPI_COMPLETED_KEY, assessmentId);
+
+    // Already exists -> do nothing
+    if (localStorage.getItem(dstDraftKey)) return;
+
+    // Candidate sources (new/legacy)
+    const srcKeys = [
+      _getScopedKey(__KPI_DRAFT_KEY, "no_assessment"),
+      __KPI_DRAFT_KEY,
+    ];
+
+    let payload = null;
+    for (const k of srcKeys) {
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      const obj = _safeParseJsonLite(raw);
+      if (obj && typeof obj === "object" && obj.data) { payload = raw; break; }
+    }
+
+    if (payload) {
+      localStorage.setItem(dstDraftKey, payload);
+      // Best-effort migrate completed flag
+      const srcCompletedKeys = [
+        _getScopedKey(__KPI_COMPLETED_KEY, "no_assessment"),
+        __KPI_COMPLETED_KEY,
+      ];
+      for (const ck of srcCompletedKeys) {
+        const v = localStorage.getItem(ck);
+        if (v != null) { localStorage.setItem(dstCompletedKey, v); break; }
+      }
+      console.log("[RESULTS] Draft migrated to assessment scope:", assessmentId);
+    }
+  } catch (e) {
+    console.warn("[RESULTS] migrate draft failed:", e);
+  }
+}
+
+
+/* ============================================================
    ✅ Format helpers
 ============================================================ */
 function fmtDateTime(iso) {
@@ -874,7 +937,7 @@ function render(assess) {
 
   // ✅ Link Dashboard: nếu offline/file:// -> tự sang mode=local
   const dashHref = withAssessmentId("./DASHBOARD.html", assess.assessment_id);
-  const kpiHref = withAssessmentId("./KPI_SCORING.html", assess.assessment_id) + "&restore_draft=1";
+  const kpiHref = withAssessmentId("./KPI_SCORING.html", assess.assessment_id) + "&restore_draft=1"; // Resume from RESULTS
 
   const main = $("mainRoot");
   if (!main) return;
@@ -1031,7 +1094,7 @@ function render(assess) {
 
     <div class="footer-actions">
       <div class="footer-right" style="margin-left:auto; display:flex; gap:10px; flex-wrap:wrap;">
-        <a class="btn light" href="${kpiHref}">🧮 Xem trang KPI</a>
+        <a class="btn light" id="btnGoKPI" href="${kpiHref}">🧮 Xem trang KPI</a>
         <a class="btn primary" id="footerDashboardLink" href="${dashHref}">📈 Xem Dashboard (mô tả dữ liệu)</a>
       </div>
     </div>
@@ -1067,6 +1130,23 @@ function render(assess) {
       showToast("error", "Export lỗi", e?.message || "Không thể export JSON.");
     }
   });
+
+
+  // ✅ Resume KPI inputs (draft) for this assessment
+  const btnGoKPI = document.getElementById("btnGoKPI");
+  if (btnGoKPI) {
+    btnGoKPI.addEventListener("click", (e) => {
+      e.preventDefault();
+      const aid = assess.assessment_id || getQueryParam("assessment_id") || sessionStorage.getItem("current_assessment_id") || "";
+      if (aid) {
+        sessionStorage.setItem("current_assessment_id", aid);
+        localStorage.setItem("current_assessment_id", aid);
+      }
+      _migrateDraftIfNeeded(aid);
+      const href = withAssessmentId("./KPI_SCORING.html", aid) + "&restore_draft=1";
+      window.location.href = href;
+    });
+  }
 
   // ✅ Sau khi render xong, sync lại link Dashboard để click luôn hoạt động
   if (assess.assessment_id) syncDashboardLinks(assess.assessment_id);
