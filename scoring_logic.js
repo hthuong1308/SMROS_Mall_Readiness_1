@@ -1,27 +1,24 @@
 
 const BACKUP_KPI_RULES = {
-  "OP-01": { name: "Tỷ lệ giao hàng trễ (LSR)", method: "RANGE", direction: "LE", t1: 8, t2: 12, weight: 0.08 },
-  "OP-02": { name: "Tỷ lệ đơn hàng không thành công (NFR)", method: "RANGE", direction: "LE", t1: 8, t2: 12, weight: 0.08 },
-  "OP-03": { name: "Tỷ lệ đánh giá tiêu cực (NRR)", method: "RANGE", direction: "LE", t1: 2, t2: 5, weight: 0.05 },
-  "OP-04": { name: "Tỷ lệ giao hàng nhanh", method: "RANGE", direction: "GE", t1: 95, t2: 80, weight: 0.05 },
-  "CS-01": { name: "Tỷ lệ phản hồi Chat", method: "RANGE", direction: "GE", t1: 80, t2: 60, weight: 0.08 },
-  "CS-02": { name: "Thời gian phản hồi Chat (h)", method: "RANGE", direction: "LE", t1: 4, t2: 8, weight: 0.04 },
-  "PEN-01": { name: "Điểm phạt Sao Quả Tạ", method: "RANGE", direction: "LE", t1: 2, t2: 2, weight: 0.08 },
-  "CO-01": { name: "Tỷ lệ hàng đặt trước (%)", method: "RANGE", direction: "LE", t1: 5, t2: 10, weight: 0.04 },
-  "CO-02": { name: "Không vi phạm cộng đồng", method: "BINARY", direction: "BOOL", weight: 0.05 },
-
-  "BR-01": { name: "Website ổn định (domain check)", method: "CUSTOM", direction: "CUSTOM", weight: 0.05 },
-  "BR-02": { name: "Hiện diện MXH (followers + post link)", method: "CUSTOM", direction: "CUSTOM", weight: 0.05, t1: 5000 },
-  "BR-03": { name: "Độ phủ Offline (địa chỉ cửa hàng)", method: "CUSTOM", direction: "CUSTOM", weight: 0.05 },
-
-  "CAT-01": { name: "Số lượng sản phẩm hoạt động (SKU)", method: "RANGE", direction: "GE", t1: 50, t2: 5, weight: 0.05 },
-  "CAT-02": { name: "Ảnh đạt chuẩn (white bg + lifestyle)", method: "CUSTOM", direction: "CUSTOM", weight: 0.05 },
-  "CAT-03": { name: "Sản phẩm bị khóa/xóa", method: "BINARY", direction: "BOOL", weight: 0.10 },
-  "CAT-04": { name: "Các vi phạm khác", method: "BINARY", direction: "BOOL", weight: 0.05 },
-
-  "SC-01": { name: "Doanh số 4w (Triệu VNĐ)", method: "RANGE", direction: "GE", t1: 50, t2: 30, weight: 0.04 },
-  "SC-02": { name: "Số đơn hàng 4w", method: "RANGE", direction: "GE", t1: 250, t2: 150, weight: 0.04 },
-  "SC-03": { name: "Tăng trưởng doanh số (%)", method: "RANGE", direction: "GE", t1: 5, t2: 0, weight: 0.02 },
+  "OP-01": { name: "Tỷ lệ giao hàng trễ (LSR)", method: "RANGE", direction: "LE", t1: 8, t2: 12, weight: 0.051801801802 },
+  "OP-02": { name: "Tỷ lệ đơn hàng không thành công (NFR)", method: "RANGE", direction: "LE", t1: 8, t2: 12, weight: 0.051801801802 },
+  "OP-03": { name: "Tỷ lệ đánh giá tiêu cực (NRR)", method: "RANGE", direction: "LE", t1: 2, t2: 5, weight: 0.051801801802 },
+  "OP-04": { name: "Fast Handling Rate", method: "RANGE", direction: "GE", t1: 95, t2: 80, weight: 0.051801801802 },
+  "CS-01": { name: "Chat Response Rate", method: "RANGE", direction: "GE", t1: 80, t2: 60, weight: 0.04954954955 },
+  "CS-02": { name: "Chat Response Time (h)", method: "RANGE", direction: "LE", t1: 4, t2: 8, weight: 0.04954954955 },
+  "PEN-01": { name: "Điểm phạt Sao Quả Tạ", method: "RANGE", direction: "LE", t1: 0, t2: 2, weight: 0.072072072072 },
+  "CO-01": { name: "Tỷ lệ hàng đặt trước (%)", method: "RANGE", direction: "LE", t1: 5, t2: 10, weight: 0.04954954955 },
+  "CO-02": { name: "Community Violations", method: "BINARY", direction: "BOOL", weight: 0.072072072072 },
+  "BR-01": { name: "Website ổn định (domain check)", method: "CUSTOM", direction: "CUSTOM", weight: 0.062857142857 },
+  "BR-02": { name: "Social Media", method: "CUSTOM", direction: "CUSTOM", t1: 5000, weight: 0.068571428571 },
+  "BR-03": { name: "Độ phủ offline", method: "CUSTOM", direction: "CUSTOM", weight: 0.068571428571 },
+  "CAT-01": { name: "Số lượng sản phẩm hoạt động (SKU)", method: "RANGE", direction: "GE", t1: 50, t2: 5, weight: 0.016836734694 },
+  "CAT-02": { name: "Ảnh đạt chuẩn (white bg + lifestyle + không vi phạm)", method: "CUSTOM", direction: "CUSTOM", weight: 0.033673469388 },
+  "CAT-03": { name: "Sản phẩm bị khóa/xóa", method: "BINARY", direction: "BOOL", weight: 0.050510204082 },
+  "CAT-04": { name: "Các vi phạm khác", method: "BINARY", direction: "BOOL", weight: 0.048979591837 },
+  "SC-01": { name: "Doanh số 4 tuần (Triệu VNĐ)", method: "RANGE", direction: "GE", t1: 50, t2: 30, weight: 0.039130434783 },
+  "SC-02": { name: "Số đơn 4 tuần (Soft KO)", method: "RANGE", direction: "GE", t1: 250, t2: 150, weight: 0.075 },
+  "SC-03": { name: "Tăng trưởng 4w", method: "RANGE", direction: "GE", t1: 5, t2: 0, weight: 0.035869565217 },
 };
 
 const BACKUP_KPI_ORDER = [
