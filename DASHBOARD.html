@@ -2711,6 +2711,227 @@
     .insight-skeleton {
         background: linear-gradient(90deg, #f3f4f6, #fff7f3, #f3f4f6);
     }
+
+
+    /* =========================
+   FIXLIST + KPI TABLE – richer surface (no "white sheet")
+   ========================= */
+
+    /* Section wrappers */
+    .section,
+    .panel,
+    .card-section,
+    .block,
+    .box {
+        background: linear-gradient(180deg, #ffffff 0%, #fff7f3 100%);
+    }
+
+    /* If your page uses these IDs */
+    #fixlistSection,
+    #kpiTableSection {
+        background: transparent;
+    }
+
+    /* Titles with stronger bar */
+    .section-title,
+    .panel-title,
+    .block-title,
+    h2.section-h,
+    .section-header {
+        position: relative;
+        padding-left: 12px;
+    }
+
+    .section-title::before,
+    .panel-title::before,
+    .block-title::before,
+    h2.section-h::before,
+    .section-header::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 6px;
+        height: 70%;
+        border-radius: 999px;
+        background: linear-gradient(180deg, rgba(238, 77, 45, 1), rgba(238, 77, 45, .35));
+    }
+
+    /* Fixlist card */
+    .fixlist-card,
+    .fixlist-item,
+    .fix-card {
+        border: 1px solid rgba(15, 23, 42, .10);
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 16px 40px rgba(15, 23, 42, .10);
+    }
+
+    .fixlist-item {
+        padding: 14px;
+    }
+
+    .fixlist-item .kpi-badge,
+    .fixlist-item .pill,
+    .fixlist-item .tag {
+        background: rgba(238, 77, 45, .08);
+        border: 1px solid rgba(238, 77, 45, .18);
+        color: rgba(238, 77, 45, 1);
+        font-weight: 1300;
+        border-radius: 12px;
+        padding: 8px 10px;
+    }
+
+    /* Search bar + filter */
+    .table-toolbar,
+    .kpi-toolbar,
+    .filter-row {
+        background: #fff;
+        border: 1px solid rgba(15, 23, 42, .10);
+        border-radius: 16px;
+        box-shadow: 0 14px 34px rgba(15, 23, 42, .08);
+        padding: 10px 12px;
+    }
+
+    /* Inputs */
+    .table-toolbar input,
+    .kpi-toolbar input,
+    .filter-row input,
+    .table-toolbar select,
+    .kpi-toolbar select,
+    .filter-row select {
+        border: 1px solid rgba(15, 23, 42, .12);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: #fff;
+        transition: box-shadow .15s ease, border-color .15s ease;
+    }
+
+    .table-toolbar input:focus,
+    .kpi-toolbar input:focus,
+    .filter-row input:focus,
+    .table-toolbar select:focus,
+    .kpi-toolbar select:focus,
+    .filter-row select:focus {
+        outline: none;
+        border-color: rgba(238, 77, 45, .45);
+        box-shadow: 0 0 0 4px rgba(238, 77, 45, .12);
+    }
+
+    /* KPI table container */
+    .table-wrap,
+    .kpi-table-wrap,
+    .table-container {
+        background: #fff;
+        border: 1px solid rgba(15, 23, 42, .10);
+        border-radius: 18px;
+        box-shadow: 0 18px 44px rgba(15, 23, 42, .10);
+        overflow: hidden;
+    }
+
+    /* Table */
+    table {
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    thead th {
+        background: linear-gradient(180deg, #fff7f3, #ffffff);
+        color: rgba(15, 23, 42, .78);
+        font-weight: 1200;
+        letter-spacing: .2px;
+        border-bottom: 1px solid rgba(15, 23, 42, .10);
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+
+    tbody td {
+        border-bottom: 1px solid rgba(15, 23, 42, .08);
+        color: rgba(15, 23, 42, .92);
+        font-weight: 900;
+    }
+
+    tbody tr:nth-child(odd) {
+        background: rgba(15, 23, 42, .015);
+    }
+
+    tbody tr:hover {
+        background: rgba(238, 77, 45, .06);
+    }
+
+    /* KPI code pill in table */
+    .kpi-code,
+    .kpi-chip,
+    .pill-kpi {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        border-radius: 14px;
+        border: 1px solid rgba(15, 23, 42, .10);
+        background: #fff;
+        font-weight: 1300;
+        box-shadow: 0 10px 22px rgba(15, 23, 42, .06);
+    }
+
+    /* Priority badge P0/P1/P2/P3 */
+    .pri,
+    .priority-badge,
+    .p-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-weight: 1400;
+        border: 1px solid rgba(15, 23, 42, .10);
+        background: rgba(15, 23, 42, .04);
+    }
+
+    .pri.p0,
+    .priority-badge.p0 {
+        background: rgba(239, 68, 68, .10);
+        border-color: rgba(239, 68, 68, .22);
+        color: #ef4444;
+    }
+
+    .pri.p1,
+    .priority-badge.p1 {
+        background: rgba(245, 158, 11, .12);
+        border-color: rgba(245, 158, 11, .22);
+        color: #b45309;
+    }
+
+    .pri.p2,
+    .priority-badge.p2 {
+        background: rgba(59, 130, 246, .10);
+        border-color: rgba(59, 130, 246, .22);
+        color: #2563eb;
+    }
+
+    .pri.p3,
+    .priority-badge.p3 {
+        background: rgba(34, 197, 94, .10);
+        border-color: rgba(34, 197, 94, .22);
+        color: #16a34a;
+    }
+
+    /* “Impact” numbers align + bold */
+    .impact,
+    .impact-gap,
+    .impact-col {
+        font-variant-numeric: tabular-nums;
+        font-weight: 1300;
+        color: rgba(15, 23, 42, .92);
+    }
+
+    /* Make Recommendation column less empty */
+    .rec,
+    .recommendation-col {
+        color: rgba(15, 23, 42, .75);
+        font-weight: 850;
+    }
 </style>
 
 <body class="is-loading">
