@@ -1751,6 +1751,109 @@
         if (_controlsBound) return;
         _controlsBound = true;
 
+        // =====================================================
+        // Header navigation (Result / KPI Scoring)
+        // - Back to RESULTS opens the same assessment_id
+        // - Back to KPI_SCORING restores draft (restore_draft=1)
+        // =====================================================
+        const getAid = () => {
+            try {
+                const qs = new URL(window.location.href).searchParams;
+                const q = (qs.get("assessment_id") || "").trim();
+                if (q) return q;
+            } catch (_) { }
+            return (
+                sessionStorage.getItem("current_assessment_id") ||
+                localStorage.getItem("current_assessment_id") ||
+                ""
+            );
+        };
+
+        // =====================================================
+        // Draft migration helper
+        // -----------------------------------------------------
+        // KPI_SCORING uses a scoped draft key:
+        //   SMROS_KPI_DRAFT_V1__<uid>__<shopId>__<assessment_id>
+        // If a user started filling KPI_SCORING without an assessment_id
+        // (common when coming from SOFT_KO), the draft was stored under
+        // "__no_assessment". Later, when an assessment_id exists, navigating
+        // back with restore_draft=1 would show a blank form because the draft
+        // key no longer matches.
+        //
+        // Fix: when we DO have an assessment_id, opportunistically migrate
+        // any existing "no_assessment" draft to the current assessment scope.
+        // =====================================================
+        const KPI_DRAFT_PREFIX = "SMROS_KPI_DRAFT_V1";
+        const KPI_COMPLETED_PREFIX = "SMROS_KPI_COMPLETED_V1";
+
+        const getScopeIdentity = () => {
+            const uid = window._auth?.currentUser?.uid || localStorage.getItem("smros_uid") || "anon";
+            let shopId = "unknown";
+            try {
+                const shop = JSON.parse(localStorage.getItem("shop_info") || "{}");
+                shopId = shop.shop_id || shop.shopId || shopId;
+            } catch (_) { }
+            return { uid, shopId };
+        };
+
+        const makeScopedKey = (prefix, uid, shopId, aid) => `${prefix}__${uid}__${shopId}__${aid}`;
+
+        const migrateKpiDraftIfNeeded = (aid) => {
+            try {
+                if (!aid) return;
+                const { uid, shopId } = getScopeIdentity();
+                const srcDraftKey = makeScopedKey(KPI_DRAFT_PREFIX, uid, shopId, "no_assessment");
+                const dstDraftKey = makeScopedKey(KPI_DRAFT_PREFIX, uid, shopId, aid);
+                const srcCompletedKey = makeScopedKey(KPI_COMPLETED_PREFIX, uid, shopId, "no_assessment");
+                const dstCompletedKey = makeScopedKey(KPI_COMPLETED_PREFIX, uid, shopId, aid);
+
+                const srcDraft = localStorage.getItem(srcDraftKey);
+                if (srcDraft && !localStorage.getItem(dstDraftKey)) {
+                    localStorage.setItem(dstDraftKey, srcDraft);
+                }
+
+                const srcCompleted = localStorage.getItem(srcCompletedKey);
+                if (srcCompleted && !localStorage.getItem(dstCompletedKey)) {
+                    localStorage.setItem(dstCompletedKey, srcCompleted);
+                }
+            } catch (_) { }
+        };
+
+        const goto = (page, params = {}) => {
+            const u = new URL(page, window.location.href);
+            const aid = getAid();
+            if (aid) u.searchParams.set("assessment_id", aid);
+            Object.entries(params).forEach(([k, v]) => {
+                if (v === undefined || v === null) return;
+                u.searchParams.set(k, String(v));
+            });
+            window.location.href = u.toString();
+        };
+
+        const btnBackToResult = document.getElementById("btnBackToResult");
+        if (btnBackToResult) {
+            btnBackToResult.addEventListener("click", () => {
+                // Always go to the scored result page of the same assessment
+                goto("RESULTS.html");
+            });
+        }
+
+        const btnBackToKPI = document.getElementById("btnBackToKPI");
+        if (btnBackToKPI) {
+            btnBackToKPI.addEventListener("click", () => {
+                // Ensure we keep the same assessment scope
+                const aid = getAid();
+                if (aid) {
+                    try { sessionStorage.setItem("current_assessment_id", aid); } catch (_) { }
+                    try { localStorage.setItem("current_assessment_id", aid); } catch (_) { }
+                    migrateKpiDraftIfNeeded(aid);
+                }
+
+                // Restore draft so user sees the filled inputs (not blank)
+                goto("KPI_SCORING.html", { restore_draft: 1 });
+            });
+        }
+
         const search = $("searchKPI");
         const filter = $("filterGroup");
         if (search) search.addEventListener("input", () => renderKpiTable());
